@@ -2177,35 +2177,39 @@ MYPROCINFO *sched_allocate_procs(unsigned int n_threads, pid_t pid)
 		process_map[n].start = time(NULL);
 		sched_unlock(n);
 
+		if ( global_processor_affinity )
+		{
 #ifdef WIN32
-		// TODO add this cpu to affinity
-		cpu = n;
+			// TODO add this cpu to affinity
+			cpu = n;
 #elif defined DYN_PROC_AFFINITY /* linux */
-		CPU_SET_S(n,CPU_ALLOC_SIZE(n_procs),cpuset);	
+			CPU_SET_S(n,CPU_ALLOC_SIZE(n_procs),cpuset);	
 #elif defined HAVE_CPU_SET_T && defined HAVE_CPU_SET_MACROS
-		CPU_SET(n,cpuset);
+			CPU_SET(n,cpuset);
 #elif defined MACOSX
-		// TODO add this cpu to affinity
-		cpu = n;
+			// TODO add this cpu to affinity
+			cpu = n;
 #endif
+		}
 	}
 #ifdef WIN32
 	// TODO set mp affinity
-	if ( global_threadcount==1 && SetProcessAffinityMask(hProc,(DWORD_PTR)(1<<cpu))==0 )
+	if ( global_processor_affinity && global_threadcount==1 && SetProcessAffinityMask(hProc,(DWORD_PTR)(1<<cpu))==0 )
 	{
 		unsigned long  err = GetLastError();
 		output_error("unable to set current process affinity mask, err code %d", err);
 	}
 	CloseHandle(hProc);
 #elif defined DYN_PROC_AFFINITY
-	if (sched_setaffinity(pid,CPU_ALLOC_SIZE(n_procs),cpuset) )
+	if ( global_processor_affinity && sched_setaffinity(pid,CPU_ALLOC_SIZE(n_procs),cpuset) )
 		output_warning("unable to set current process affinity mask: %s", strerror(errno));
 #elif defined HAVE_SCHED_SETAFFINITY
-	if (sched_setaffinity(pid,sizeof(cpu_set_t),cpuset) )
+	if ( global_processor_affinity && sched_setaffinity(pid,sizeof(cpu_set_t),cpuset) )
 		output_warning("unable to set current process affinity mask: %s", strerror(errno));
 #elif defined MACOSX
 	// TODO set mp affinity
 	//if ( global_threadcount==1 )
+	if ( global_processor_affinity ) 
 	{
 		policy.affinity_tag = cpu;
 		if ( thread_policy_set(mach_thread_self(), THREAD_AFFINITY_POLICY, (thread_policy_t)&policy, THREAD_AFFINITY_POLICY_COUNT)!=KERN_SUCCESS )

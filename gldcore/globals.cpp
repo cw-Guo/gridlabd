@@ -368,6 +368,7 @@ DEPRECATED static struct s_varmap {
     {"region", PT_char32, &global_region,PA_PUBLIC,"region code"},
     {"organization",PT_char32, &global_organization,PA_PUBLIC,"organization name"},
     {"profile_output_format",PT_set,&global_profile_output_format,PA_PUBLIC,"profiler output data format"},
+    {"processor_affinity", PT_bool, &global_processor_affinity, PA_PUBLIC, "enable processor affinity"},
 	/* add new global variables here */
 };
 

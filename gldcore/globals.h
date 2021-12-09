@@ -830,7 +830,11 @@ GLOBAL int64 global_rusage_rate INIT(0);
 /* Variable: global_rusage_file */
 GLOBAL char1024 global_rusage_file INIT("gridlabd-rusage.csv");
 
+/* Variable: global_rusage_data */
 GLOBAL char1024 global_rusage_data INIT("{}");
+
+/* Variable: global_processor_affinity */
+GLOBAL bool global_processor_affinity INIT(FALSE);
 
 /* Type: PROFILEOUTPUTFORMAT */
 typedef enum
