@@ -1,0 +1,141 @@
+#!/usr/local/bin/python3
+"""GridLAB-D edit subcommand
+
+SYNTAX
+
+Shell:
+
+~~~
+sh$ gridlabd edit [OPTIONS ...] COMMAND [ARGUMENTS ...]
+~~~
+
+GLM:
+
+~~~
+#edit [OPTIONS ...] COMMAND [ARGUMENTS ...]
+~~~
+
+OPTIONS
+
+- `-i|--inputfile=INPUTFILE`: file to read (default `/dev/stdin`)
+
+- `-o|--outputfile=OUTPUTFILE`: file to write (default `/dev/stdout`)
+
+- `-f|--filetype=FILETYPE`: set file type (default `json`)
+
+COMMANDS
+
+- `create object NAME [PROPERTY=VALUE ...]
+
+- `modify object NAME [PROPERTY=VALUE ...]
+
+DESCRIPTION
+
+"""
+
+import sys, os
+import pandas
+
+VERBOSE = False
+DEBUG = False
+QUIET = False
+WARNING = True
+
+E_OK = 0
+E_INVALID = 1
+E_FAILED = 2
+E_ACCESS = 3
+E_EXCEPTION = 8
+E_SYNTAX = 9
+
+FILETYPE = "json"
+INPUTFILE = sys.stdin
+OUTPUTFILE = sys.stdout
+COMMAND = []
+
+def main(args):
+
+    for arg in args:
+
+        # extract arg specs
+        spec = arg.split("=")
+        tag = spec[0]
+        if len(spec) == 1:
+            value = None
+        elif len(spec) == 2:
+            value = spec[1]
+        else:
+            value = spec[1:]
+
+        if tag in ['-d','--debug']:
+            DEBUG = True
+        elif tag in ['-i','--inputfile']:
+            INPUTFILE = open(value,"r")
+        elif tag in ['-f','--filetype']:
+            FILETYPE = value
+        elif tag in ['-o','--outputfile']:
+            OUTPUTFILE = open(value,"w")
+        elif tag in ['-q','--quiet']:
+            QUIET = True
+        elif tag in ['-v','--verbose']:
+            VERBOSE = True
+        elif tag in ['-w','--warning']:
+            WARNING = False
+        elif tag.startswith('-'):
+            error(f"option '{arg}' is invalid",E_INVALID)
+        else:
+            COMMAND.append(value)
+
+    verbose(f"FILETYPE = {FILETYPE}")
+    verbose(f"INPUTFILE = {INPUTFILE}")
+    verbose(f"OUTPUTFILE = {OUTPUTFILE}")
+    verbose(f"COMMAND = {COMMAND}")
+
+    if FILETYPE == "json":
+
+        DATA = pandas.read_json(INPUTFILE)
+
+    elif FILETYPE == "csv":
+
+        DATA = pandas.read_csv(INPUTFILE)
+
+    else:
+        error(f"filetype '{FILETYPE}' in invalid",E_INVALID)
+
+    debug(f"DATA = {DATA}")
+
+    raise NotImplementedError("not implemeneted")
+
+def error(msg,code=None):
+    if not QUIET:
+        print(f"ERROR [edit]: {msg}",file=sys.stderr,flush=True)
+    if type(code) is int:
+        exit(code)
+
+def warning(msg):
+    if WARNING:
+        print(f"WARNING [edit]: {msg}",file=sys.stderr,flush=True)
+
+def debug(msg):
+    if DEBUG:
+        print(f"DEBUG [edit]: {msg}",file=sys.stderr,flush=True)
+
+def verbose(msg):
+    if VERBOSE:
+        print(f"VERBOSE [edit]: {msg}",file=sys.stderr,flush=True)
+
+if __name__ == "__main__":
+
+    try:
+        
+        if len(sys.argv) == 1:
+            print("Syntax: gridlabd edit [OPTIONS ...] COMMAND [ARGUMENTS ...]",file=sys.stderr)
+            exit(E_SYNTAX)
+        
+        main(sys.argv[1:])
+
+    except:
+
+        etype, evalue, etrace = sys.exc_info()
+        ename = etype.__name__
+        error(f"{ename} {evalue}",E_EXCEPTION)
