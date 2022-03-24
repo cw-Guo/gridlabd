@@ -25,9 +25,19 @@ OPTIONS
 
 COMMANDS
 
-- `create object NAME [PROPERTY=VALUE ...]
+- `create object CLASS NAME [PROPERTY=VALUE ...]1
 
-- `modify object NAME [PROPERTY=VALUE ...]
+- `create filter NAME SPEC NUM DEN`
+
+- `define global TYPE NAME VALUE`
+
+- `delete object NAME [--force]`
+
+- `modify object NAME [PROPERTY=VALUE ...]1
+
+- `set global NAME VALUE`
+
+- `undefine global NAME`
 
 DESCRIPTION
 
@@ -52,6 +62,7 @@ FILETYPE = "json"
 INPUTFILE = sys.stdin
 OUTPUTFILE = sys.stdout
 COMMAND = []
+DATA = None
 
 def main(args):
 
@@ -68,35 +79,48 @@ def main(args):
             value = spec[1:]
 
         if tag in ['-d','--debug']:
+            global DEBUG
             DEBUG = True
         elif tag in ['-i','--inputfile']:
+            global INPUTFILE
             INPUTFILE = open(value,"r")
         elif tag in ['-f','--filetype']:
+            global FILETYPE
             FILETYPE = value
         elif tag in ['-o','--outputfile']:
+            global OUTPUTFILE
             OUTPUTFILE = open(value,"w")
         elif tag in ['-q','--quiet']:
+            global QUIET
             QUIET = True
         elif tag in ['-v','--verbose']:
+            global VERBOSE
             VERBOSE = True
         elif tag in ['-w','--warning']:
+            global WARNING
             WARNING = False
         elif tag.startswith('-'):
             error(f"option '{arg}' is invalid",E_INVALID)
         else:
-            COMMAND.append(value)
+            global COMMAND
+            COMMAND.append(arg)
 
     verbose(f"FILETYPE = {FILETYPE}")
     verbose(f"INPUTFILE = {INPUTFILE}")
     verbose(f"OUTPUTFILE = {OUTPUTFILE}")
     verbose(f"COMMAND = {COMMAND}")
 
+    global DATA
     if FILETYPE == "json":
 
+        if INPUTFILE.isatty():
+            print("JSON> ",file=sys.stderr,flush=True)
         DATA = pandas.read_json(INPUTFILE)
 
     elif FILETYPE == "csv":
 
+        if INPUTFILE.isatty():
+            print("CSV> ",file=sys.stderr,flush=True)
         DATA = pandas.read_csv(INPUTFILE)
 
     else:
