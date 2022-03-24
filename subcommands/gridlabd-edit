@@ -44,7 +44,7 @@ DESCRIPTION
 """
 
 import sys, os
-import pandas
+import gridlabd_edit as gld
 
 VERBOSE = False
 DEBUG = False
@@ -111,28 +111,21 @@ def main(args):
     verbose(f"COMMAND = {COMMAND}")
 
     global DATA
-    if FILETYPE == "json":
-
-        if INPUTFILE.isatty():
-            print("JSON> ",file=sys.stderr,flush=True)
-        DATA = pandas.read_json(INPUTFILE)
-
-    elif FILETYPE == "csv":
-
-        if INPUTFILE.isatty():
-            print("CSV> ",file=sys.stderr,flush=True)
-        DATA = pandas.read_csv(INPUTFILE)
-
-    else:
-        error(f"filetype '{FILETYPE}' in invalid",E_INVALID)
+    DATA = gld.read(INPUTFILE,filetype=FILETYPE)
 
     debug(f"DATA = {DATA}")
 
-    raise NotImplementedError("not implemeneted")
+    RESULT = gld.command(*COMMAND,data=DATA)
+
+    debug(f"RESULT = {DATA}")
+
+    gld.write(RESULT,OUTPUTFILE,filetype=FILETYPE,indent=4)
 
 def error(msg,code=None):
     if not QUIET:
         print(f"ERROR [edit]: {msg}",file=sys.stderr,flush=True)
+    if DEBUG:
+        raise Exception(msg)
     if type(code) is int:
         exit(code)
 
