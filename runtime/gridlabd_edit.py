@@ -17,6 +17,10 @@ class GridlabdMissingValue(GridlabdError):
 	"""Raised when a needed value is missing"""
 	pass
 
+class GridlabdInvalidValue(GridlabdError):
+	"""Raise when a value is invalid"""
+	pass
+
 class GridlabdNoEntity(GridlabdError):
 	"""Raised when the requested entity is not found in the model"""
 	pass
@@ -152,22 +156,80 @@ def insert_filter(data,*args,**kwargs):
 
 def insert_global(data,*args,**kwargs):
 
-	raise NotImplementedError("insert_global")
+	if not "name" in kwargs.keys():
+		raise GridlabdMissingValue("missing global name")
+	name = kwargs["name"]
+
+	if not "type" in kwargs.keys():
+		raise GridlabdMissingValue("missing global type")
+	gtype = kwargs["type"]
+	if gtype not in data["types"].keys():
+		raise GridlabdInvalidValue(f"global type '{gtype}' is invalid")
+
+	if not "access" in kwargs.keys():
+		access = "PUBLIC" # default is public
+	else:
+		access = kwargs["access"]
+	if access not in ["REFERENCE","PUBLIC","PRIVATE","PROTECTED","HIDDEN"]:
+		raise GridlabdInvalidValue(f"global access '{access}' is invalid")
+
+	if not "values" in kwargs.keys():
+		value = "" # default is null value
+	else:
+		value = kwargs["value"]
+
+	globalvars = get_globals(data)
+	if name in globalvars.keys():
+		raise GridlabdEntityExists(f"global name '{name}' already exists")
+
+	globalvars[name] = {
+		"type" : gtype,
+		"access" : access,
+		"value" : value
+	}
+	if gtype in ["set","enumeration"]: # special for keywords
+		if not "keywords" in kwargs.keys():
+			raise GridlabdMissingValue(f"missing {gtype} keywords")
+		keywords = {}
+		for item in kwargs["keywords"].split(","):
+			spec = item.split(":")
+			keywords[spec[0]] = spec[1]
+		globalvars[name]["keywords"] = keywords
+
+	return data
 
 def insert_module(data,*args,**kwargs):
+	"""Insert a module
 
-	raise NotImplementedError("insert_module")
+	ARGUMENTS
+
+	- `data` (dict): original model
+
+	- `args` (list): none
+
+	- `kwargs` (dict): module `name` must be specified
+
+	"""
+	result = subprocess.run(["gridlabd","--modhelp=json",kwargs["name"]],capture_output=True)
+	if result.returncode:
+		raise GridlabdRuntimeError(f"gridlabd command failed: {' '.join(command)}\n{result.stderr.decode()}")
+	module = json.loads(result.stdout.decode())
+
+	data["modules"].update(module["modules"])
+	data["classes"].update(module["classes"])
+
+	return data
 
 def insert_object(data,*args,**kwargs):
 	"""Create object in model
 
 	ARGUMENTS
 
-	- Data (dict): original model
+	- `data` (dict): original model
 
-	- Args (list): none
+	- `args` (list): none
 
-	- Kwargs (dict): Object Properties (must include `class` as well as all 
+	- `kwargs` (dict): Object Properties (must include `class` as well as all 
 	  required properties for class)
 
 	RETURNS

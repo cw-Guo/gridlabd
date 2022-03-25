@@ -103,13 +103,17 @@ def main(args):
                 raise Exception(f"{arg}: key '{tag}'' already specified")
             else:
                 KEYWORDS[tag] = value
-        elif tag.startswith('-'):
-            KEYWORDS[tag] = None
-        else:
-            if len(COMMANDS) == 0:
-                if gld.VALID_COMMANDS[arg] == 0:
-                    INPUTFILE = None                
+        elif not tag.startswith('-') \
+                and ( len(COMMANDS) == 0 \
+                    or len(COMMANDS) <= abs(gld.VALID_COMMANDS[COMMANDS[0]])
+                ):
+            if len(COMMANDS) == 0 and gld.VALID_COMMANDS[arg] == 0:
+                    INPUTFILE = None
             COMMANDS.append(arg)
+        elif len(COMMANDS) > 0 and gld.VALID_COMMANDS[COMMANDS[0]] < 0:
+            KEYWORDS[tag] = value
+        else:
+            error(f"'{arg}' is invalid",E_INVALID)
 
     verbose(f"INPUTFILE = {INPUTFILE}")
     verbose(f"OUTPUTFILE = {OUTPUTFILE}")
