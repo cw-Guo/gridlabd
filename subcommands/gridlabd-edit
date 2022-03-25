@@ -59,6 +59,9 @@ DATA = None
 
 def main(args):
 
+    global COMMANDS
+    global KEYWORDS
+    
     for arg in args:
 
         # extract arg specs
@@ -95,16 +98,14 @@ def main(args):
         elif tag in ['-w','--warning']:
             global WARNING
             WARNING = False
-        elif tag.startswith('-'):
-            error(f"option '{arg}' is invalid",E_INVALID)
         elif value != None:
-            global KEYWORDS
             if tag in KEYWORDS.keys():
                 raise Exception(f"{arg}: key '{tag}'' already specified")
             else:
                 KEYWORDS[tag] = value
+        elif tag.startswith('-'):
+            KEYWORDS[tag] = None
         else:
-            global COMMANDS
             if len(COMMANDS) == 0:
                 if gld.VALID_COMMANDS[arg] == 0:
                     INPUTFILE = None                
@@ -115,18 +116,18 @@ def main(args):
     verbose(f"COMMANDS = {COMMANDS}")
     verbose(f"KEYWORDS = {KEYWORDS}")
 
-    if INPUTFILE.isatty():
+    if INPUTFILE and INPUTFILE.isatty():
         error("input is a tty",E_INVALID)
 
     global DATA
     if INPUTFILE:
         DATA = gld.read(INPUTFILE)
 
-    debug(f"DATA = {DATA}")
+    verbose(f"DATA = {DATA}")
 
     RESULT = gld.command(DATA,*COMMANDS,**KEYWORDS)
 
-    debug(f"RESULT = {DATA}")
+    verbose(f"RESULT = {DATA}")
 
     gld.write(RESULT,OUTPUTFILE,indent=4)
 
@@ -134,7 +135,11 @@ def error(msg,code=None):
     if not QUIET:
         print(f"ERROR [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
     if DEBUG:
-        raise Exception(msg)
+        print("Traceback (most recent call last):",file=sys.stderr)
+        etype,evalue,etrace = sys.exc_info()
+        import traceback
+        traceback.print_tb(etrace)
+        print(f"{etype.__name__}: {evalue}",file=sys.stderr,flush=True)
     if type(code) is int:
         exit(code)
 
@@ -166,20 +171,17 @@ if __name__ == "__main__":
 
     except FileNotFoundError as err:
 
-        error(err)
-        exit(E_ACCESS)
+        error(err,E_ACCESS)
 
     except gld.GridlabdError as err:
 
-        error(err)
-        exit(E_FAILED)
+        error(err,E_FAILED)
 
-    except:
+    except Exception as err:
 
         etype, evalue, etrace = sys.exc_info()
         ename = etype.__name__
         efile = etrace.tb_frame.f_code.co_filename
         eline = etrace.tb_lineno
-        error(f"{evalue} (exception={ename}, file={efile}, line={eline}, exitcode={E_EXCEPTION})")
-        exit(E_EXCEPTION)
+        error(f"{evalue} (exception={ename}, file={efile}, line={eline}, exitcode={E_EXCEPTION})",E_EXCEPTION)
 

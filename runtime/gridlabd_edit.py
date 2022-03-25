@@ -104,7 +104,16 @@ def command(data,*args,**kwargs):
 		raise GridlabdInvalidCommand(f"'{args[0]}': '{fname}' is not a valid function name")
 
 def create(data,*args,**kwargs):
+	"""Create new model
 
+	ARGUMENTS
+
+		data (dict) - ignored
+
+		*args (list) - [1] name of model (optional)
+
+		**kwargs (dict) - gridlabd command options
+	"""
 	if len(args) == 0:
 
 		name = "untitled.glm"
@@ -118,9 +127,15 @@ def create(data,*args,**kwargs):
 	with open(name,"w") as fh:
 		fh.write("")
 
-	result = subprocess.run(["gridlabd","-C",name,"-o",name.replace(".glm",".json")],capture_output=True)
+	command = ["gridlabd","-C",name,"-o",name.replace(".glm",".json")]
+	for key,value in kwargs.items():
+		if value == None:
+			command.append(key)
+		else:
+			command.append(f"{key}={value}")
+	result = subprocess.run(command,capture_output=True)
 	if result.returncode:
-		raise GridlabdRuntimeError(result.stderr)
+		raise GridlabdRuntimeError(f"gridlabd command failed: {' '.join(command)}\n{result.stderr.decode()}")
 
 	with open(name.replace(".glm",".json")) as fh:
 		return json.load(fh)
