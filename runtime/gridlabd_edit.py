@@ -1,64 +1,65 @@
 """GridLAB-D Model Editor
 """
 
-import sys, os
+import sys, os, subprocess
 import json
 import pandas
+
+class GridlabdError(Exception):
+	"""Raised when a GridLAB-D error occurs"""
+	pass
+
+class GridlabdModelError(GridlabdError):
+	"""Raised when the model data is invalid"""
+	pass
+
+class GridlabdMissingValue(GridlabdError):
+	"""Raised when a needed value is missing"""
+	pass
+
+class GridlabdNoEntity(GridlabdError):
+	"""Raised when the requested entity is not found in the model"""
+	pass
+
+class GridlabdInvalidCommand(GridlabdError):
+	"""Raised when an invalid command is used"""
+	pass
+
+class GridlabdRuntimeError(GridlabdError):
+	"""Raised when a runtime error occurs with GridLAB-D"""
+	pass
+
+class GridlabdEntityInUse(GridlabdError):
+	"""Raised when an entity is busy or in used"""
+	pass
+
+class GridlabdEntityExists(GridlabdError):
+	"""Raised when an entity already exists"""
+	pass
 
 # 
 # FILE READ
 #
-def read(filename,filetype="json",*args,**kwargs):
-
-    if filetype == "json":
-
-        if filename.isatty():
-            print("JSON",file=sys.stderr,flush=True,end='> ')
-        return read_json(filename,*args,**kwargs)
-
-    elif filetype == "csv":
-
-        if filename.isatty():
-            print("CSV",file=sys.stderr,flush=True,end='> ')
-        return read_csv(filename,*args,**kwargs)
-
-    else:
-        raise ValueError(f"filetype '{filetype}' in invalid")
-
-def read_csv(file,*args,**kwargs):
-    return pandas.read_csv(file,*args,**kwargs)
-
-def read_json(file,*args,**kwargs):
+def read(file,*args,**kwargs):
 	return json.load(file,*args,**kwargs)
 
 #
 # FILE WRITE
 #
 
-def write(data,filename,filetype="json",*args,**kwargs):
-
-    if filetype == "json":
-
-        DATA = write_json(data,filename,*args,**kwargs)
-
-    elif filetype == "csv":
-
-        DATA = write_csv(data,filename,*args,**kwargs)
-
-    else:
-        raise ValueError(f"filetype '{filetype}' in invalid")
-
-def write_csv(data,file,*args,**kwargs):
-	data.to_csv(file,*args,**kwargs)
-
-def write_json(data,file,*args,**kwargs):
+def write(data,file,*args,**kwargs):
 	json.dump(data,file,*args,**kwargs)
 
 #
 # COMMANDS
 #
-VALID_COMMANDS = ["create"]
-def command(*args,**kwargs):
+VALID_COMMANDS = {
+	"create" : 0, # no additional arguments required
+	"delete" : 1, # one argument required
+	"insert" : -1, # one argument required with keywords
+	"update" : -1, # one argument required with keywords
+}
+def command(data,*args,**kwargs):
 	"""Run a model edit command
 
 	ARGUMENTS
@@ -68,99 +69,246 @@ def command(*args,**kwargs):
 	- ARGUMENTS
 
 	"""
-	if len(args) < 3:
+	if len(args) == 1:
 
-		raise ValueError("missing command arguments")
+		raise GridlabdInvalidCommand("missing command")
 
-	if not "data" in kwargs.keys():
+	if not args[0] in VALID_COMMANDS.keys():
 
-		raise ValueError("missing data")
+		raise GridlabdInvalidCommand(f"command '{args[0]}' in not valid")
 
-	if not args[0] in VALID_COMMANDS:
-		raise Exception(f"command '{args[0]}' in not valid")
+	if len(args) <= abs(VALID_COMMANDS[args[0]]):
 
-	fname = f"{args[0]}_{args[1]}"
-	fargs = args[2:]
-	data = kwargs["data"]
-	if fname in globals().keys() and type(globals()[fname]).__name__ == 'function':
+		raise GridlabdInvalidCommand(f"'{args[0]}': missing command {abs(VALID_COMMANDS[args[0]])-len(args)} argument(s)")
 
-		return globals()[fname](fargs,data=data)
+	elif VALID_COMMANDS[args[0]] != 0:
+
+		fname = f"{args[0]}_{args[1]}"
+		nargs = 2
 
 	else:
 
-		raise Exception(f"command({args},data={data}): {fname} is not a valid function name")
+		fname = args[0]
+		nargs = 1
 
-def create_object(args,data):
+	if VALID_COMMANDS[args[0]] < 0 and kwargs == {}:
+
+		raise GridlabdInvalidCommand(f"'{args[0]}' missing keyword argumenets")
+
+	if fname in globals().keys() and type(globals()[fname]).__name__ == 'function':
+
+		return globals()[fname](data,*args[nargs:],**kwargs)
+
+	else:
+
+		raise GridlabdInvalidCommand(f"'{args[0]}': '{fname}' is not a valid function name")
+
+def create(data,*args,**kwargs):
+
+	if len(args) == 0:
+
+		name = "untitled.glm"
+
+	else:
+
+		name = args[0]
+		if not args[0].endswith(".glm"):
+			name += ".glm"
+
+	with open(name,"w") as fh:
+		fh.write("")
+
+	result = subprocess.run(["gridlabd","-C",name,"-o",name.replace(".glm",".json")],capture_output=True)
+	if result.returncode:
+		raise GridlabdRuntimeError(result.stderr)
+
+	with open(name.replace(".glm",".json")) as fh:
+		return json.load(fh)
+
+	raise GridlabdRuntimeError("json load failed")
+
+def insert_class(data,*args,**kwargs):
+
+	raise NotImplementedError("insert_class")
+
+def insert_filter(data,*args,**kwargs):
+
+	raise NotImplementedError("insert_filter")
+
+def insert_global(data,*args,**kwargs):
+
+	raise NotImplementedError("insert_global")
+
+def insert_module(data,*args,**kwargs):
+
+	raise NotImplementedError("insert_module")
+
+def insert_object(data,*args,**kwargs):
 	"""Create object in model
 
 	ARGUMENTS
 
-	- CLASS
-	- NAME
-	- PROPERTIES ...
-	- data=DATA
+	- Data (dict): original model
+
+	- Args (list): none
+
+	- Kwargs (dict): Object Properties (must include `class` as well as all 
+	  required properties for class)
 
 	RETURNS
 
-	- DATA modified
+	- Data (dict): modified model
 
 	"""
 	check_model(data)
 
-	oclass = args[0]
 	classes = get_classes(data)
+	if "class" not in kwargs.keys():
+		raise GridlabdModelError(f"class is not specified")
+	oclass = kwargs["class"]
 	if oclass not in classes.keys():
-		raise Exception(f"class '{oclass}' is not defined")
+		raise GridlabdMissingValue(f"class '{oclass}' is not defined")
 	
-	oname = args[1]
 	objects = get_objects(data)
+	if "name" in kwargs.keys():
+		oname = kwargs["name"]
+		del kwargs["name"]
+	else:
+		oname = f"{oclass}:{len(objects.keys())}"
 	if oname in objects.keys():
-		raise Exception(f"object '{oname}' already exists")
+		raise GridlabdEntityExists(f"object '{oname}' already exists")
 
-	obj = {"class":oclass,"id":len(objects.keys())}
-	for prop in args[2:]:
-		spec = prop.split("=")
-		if len(spec) < 2:
-			raise ValueError(f"property '{prop}' missing value(s)")
-		key = spec[0]
-		if len(spec) == 2:
-			value = spec[1]
-		else:
-			value = '='.join(spec[1:])
-		obj[key] = value
-
-	missing = [key for key in get_required_keys(classes,oclass) if key not in obj.keys()]
+	missing = [key for key in get_required_properties(classes,oclass) if key not in kwargs.keys()]
 	if missing:
-		raise Exception(f"missing required properties: {', '.join(missing)}")
+		raise GridlabdMissingValue(f"missing required properties: {', '.join(missing)}")
 
-	objects[oname] = obj
+	objects[oname] = kwargs
 	
 	return data
+
+def insert_schedule(data,*args,**kwargs):
+
+	raise NotImplementedError("insert_schedule")
+
+def delete_class(data,*args,**kwargs):
+
+	raise NotImplementedError("delete_class")
+
+def delete_filter(data,*args,**kwargs):
+
+	raise NotImplementedError("delete_filter")
+	
+def delete_global(data,*args,**kwargs):
+
+	raise NotImplementedError("delete_global")
+
+def delete_module(data,*args,**kwargs):
+
+	raise NotImplementedError("delete_module")
+	
+def delete_object(data,*args,**kwargs):
+	check_model(data)
+	objects = get_objects(data)
+	for name in args:
+		refcount = get_object_reference_count(data,name,limit=1)
+		if refcount > 0:
+			raise GridlabdEntityInUse(f"object '{name}' is referenced at least once")
+		elif not name in objects.keys():
+			raise GridlabdNoEntity(f"object '{name}' not found")
+		del objects[name]
+	return data
+
+def delete_schedule(data,*args,**kwargs):
+
+	raise NotImplementedError("delete_schedule")
+
+def update_class(data,*args,**kwargs):
+
+	raise NotImplementedError("update_class")
+
+def update_filter(data,*args,**kwargs):
+
+	raise NotImplementedError("update_filter")
+
+def update_module(data,*args,**kwargs):
+
+	raise NotImplementedError("update_module")
+
+def update_object(data,*args,**kwargs):
+
+	raise NotImplementedError("update_object")
+
+def update_schedule(data,*args,**kwargs):
+
+	raise NotImplementedError("update_schedule")
 
 #
 # UTILITIES
 #
+
 def get_classes(data):
 	"""Get classes in model"""
 	if "classes" not in data.keys():
-		raise ValueError("missing class data")
+		raise GridlabdModelError("missing class data")
 	return data["classes"]
+
+def get_property_type(data,classname,propname):
+	if propname in data["header"].keys():
+		return data["header"][propname]["type"]
+	classes = get_classes(data)
+	if classname not in classes.keys():
+		raise GridlabdMissingValue(f"class '{classname}' not found")
+	classdata = classes[classname]
+	if propname not in classdata.keys():
+		if "parent" in classdata.keys():
+			return get_property_type(data,classdata["parent"],propname)
+		raise GridlabdMissingValue(f"property '{propname}' not found in class '{classname}'")
+	propdata = classdata[propname]
+	if not type(propdata) is dict or "type" not in propdata.keys():
+		raise GridlabdModelError(f"property '{propname}' is not a valid")
+
+	return propdata["type"]
+
+def get_filters(data):
+	"""Get filters in model"""
+	if "filters" not in data.keys():
+		return {}
+	return data["filters"]
+
+def get_globals(data):
+	"""Get globals in model"""
+	if "globals" not in data.keys():
+		raise GridlabdModelError("missing global data")
+	return data["globals"]
+
+def get_modules(data):
+	"""Get modules in models"""
+	if "modules" not in data.keys():
+		raise GridlabdModelError("missing module data")
+	return data["modules"]
 
 def get_objects(data):
 	"""Get objects in model"""
 	if "objects" not in data.keys():
-		raise ValueError("missing object data")
+		raise GridlabdModelError("missing object data")
 	return data["objects"]
+
+def get_schedules(data):
+	"""Get schedules in model"""
+	if "schedules" not in data.keys():
+		return {}
+	return data["schedules"]
 
 def check_model(data,exception=None):
 	"""Check whether model is valid"""
 	if "application" not in data.keys():
 		if exception:
-			raise ValueError("not a gridlabd model") from exception
+			raise GridlabdModelError("not a gridlabd model") from exception
 		return False
 	return True
 
-def get_required_keys(classes,oclass):
+def get_required_properties(classes,oclass):
+	"""Get list of required properties in class"""
 	required = []
 	classdata = classes[oclass]
 	for key,info in classdata.items():
@@ -169,6 +317,17 @@ def get_required_keys(classes,oclass):
 				and "REQUIRED" in set(info["flags"].split("|")):
 			required.append(key)
 	if "parent" in classdata.keys():
-		required.extend(get_required_keys(classes,classdata["parent"]))
+		required.extend(get_required_properties(classes,classdata["parent"]))
 	return required
 
+def get_object_reference_count(data,name,limit=1):
+	"""Get a count of references to object"""
+	refcount = 0
+	for key,values in data["objects"].items():
+		classname = values["class"]
+		for propname,propvalue in values.items():
+			if get_property_type(data,classname,propname) == "object" and propvalue == name:
+				refcount += 1
+				if limit and refcount >= limit:
+					return refcount
+	return refcount

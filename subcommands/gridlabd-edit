@@ -21,23 +21,16 @@ OPTIONS
 
 - `-o|--outputfile=OUTPUTFILE`: file to write (default `/dev/stdout`)
 
-- `-f|--filetype=FILETYPE`: set file type (default `json`)
-
 COMMANDS
 
-- `create object CLASS NAME [PROPERTY=VALUE ...]1
+- `create NAME`
 
-- `create filter NAME SPEC NUM DEN`
+- `delete {class,filter,global,module,object,schedule} NAME [--force]`
 
-- `define global TYPE NAME VALUE`
+- `insert {class,filter,global,module,object,schedule} [PROPERTY=SPEC ...]`
 
-- `delete object NAME [--force]`
+- `update {class,filter,global,module,object,schedule} [PROPERTY=SPEC ...]`
 
-- `modify object NAME [PROPERTY=VALUE ...]1
-
-- `set global NAME VALUE`
-
-- `undefine global NAME`
 
 DESCRIPTION
 
@@ -51,17 +44,17 @@ DEBUG = False
 QUIET = False
 WARNING = True
 
-E_OK = 0
-E_INVALID = 1
-E_FAILED = 2
-E_ACCESS = 3
-E_EXCEPTION = 8
-E_SYNTAX = 9
+E_OK = 0 # no error
+E_INVALID = 1 # invalid arguments
+E_FAILED = 2 # gridlabd error
+E_ACCESS = 3 # file access error
+E_SYNTAX = 9 # syntax error
+E_EXCEPTION = 99 # exception caught
 
-FILETYPE = "json"
 INPUTFILE = sys.stdin
 OUTPUTFILE = sys.stdout
-COMMAND = []
+COMMANDS = []
+KEYWORDS = {}
 DATA = None
 
 def main(args):
@@ -83,13 +76,16 @@ def main(args):
             DEBUG = True
         elif tag in ['-i','--inputfile']:
             global INPUTFILE
-            INPUTFILE = open(value,"r")
-        elif tag in ['-f','--filetype']:
-            global FILETYPE
-            FILETYPE = value
+            if value:
+                INPUTFILE = open(value,"r")
+            else:
+                INPUTFILE = sys.stdin
         elif tag in ['-o','--outputfile']:
             global OUTPUTFILE
-            OUTPUTFILE = open(value,"w")
+            if value:
+                OUTPUTFILE = open(value,"w")
+            else:
+                OUTPUTFILE = sys.stdout
         elif tag in ['-q','--quiet']:
             global QUIET
             QUIET = True
@@ -101,29 +97,42 @@ def main(args):
             WARNING = False
         elif tag.startswith('-'):
             error(f"option '{arg}' is invalid",E_INVALID)
+        elif value != None:
+            global KEYWORDS
+            if tag in KEYWORDS.keys():
+                raise Exception(f"{arg}: key '{tag}'' already specified")
+            else:
+                KEYWORDS[tag] = value
         else:
-            global COMMAND
-            COMMAND.append(arg)
+            global COMMANDS
+            if len(COMMANDS) == 0:
+                if gld.VALID_COMMANDS[arg] == 0:
+                    INPUTFILE = None                
+            COMMANDS.append(arg)
 
-    verbose(f"FILETYPE = {FILETYPE}")
     verbose(f"INPUTFILE = {INPUTFILE}")
     verbose(f"OUTPUTFILE = {OUTPUTFILE}")
-    verbose(f"COMMAND = {COMMAND}")
+    verbose(f"COMMANDS = {COMMANDS}")
+    verbose(f"KEYWORDS = {KEYWORDS}")
+
+    if INPUTFILE.isatty():
+        error("input is a tty",E_INVALID)
 
     global DATA
-    DATA = gld.read(INPUTFILE,filetype=FILETYPE)
+    if INPUTFILE:
+        DATA = gld.read(INPUTFILE)
 
     debug(f"DATA = {DATA}")
 
-    RESULT = gld.command(*COMMAND,data=DATA)
+    RESULT = gld.command(DATA,*COMMANDS,**KEYWORDS)
 
     debug(f"RESULT = {DATA}")
 
-    gld.write(RESULT,OUTPUTFILE,filetype=FILETYPE,indent=4)
+    gld.write(RESULT,OUTPUTFILE,indent=4)
 
 def error(msg,code=None):
     if not QUIET:
-        print(f"ERROR [edit]: {msg}",file=sys.stderr,flush=True)
+        print(f"ERROR [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
     if DEBUG:
         raise Exception(msg)
     if type(code) is int:
@@ -131,15 +140,15 @@ def error(msg,code=None):
 
 def warning(msg):
     if WARNING:
-        print(f"WARNING [edit]: {msg}",file=sys.stderr,flush=True)
+        print(f"WARNING [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
 
 def debug(msg):
     if DEBUG:
-        print(f"DEBUG [edit]: {msg}",file=sys.stderr,flush=True)
+        print(f"DEBUG [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
 
 def verbose(msg):
     if VERBOSE:
-        print(f"VERBOSE [edit]: {msg}",file=sys.stderr,flush=True)
+        print(f"VERBOSE [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
 
 if __name__ == "__main__":
 
@@ -151,8 +160,26 @@ if __name__ == "__main__":
         
         main(sys.argv[1:])
 
+    except SystemExit:
+
+        pass
+
+    except FileNotFoundError as err:
+
+        error(err)
+        exit(E_ACCESS)
+
+    except gld.GridlabdError as err:
+
+        error(err)
+        exit(E_FAILED)
+
     except:
 
         etype, evalue, etrace = sys.exc_info()
         ename = etype.__name__
-        error(f"{ename} {evalue}",E_EXCEPTION)
+        efile = etrace.tb_frame.f_code.co_filename
+        eline = etrace.tb_lineno
+        error(f"{evalue} (exception={ename}, file={efile}, line={eline}, exitcode={E_EXCEPTION})")
+        exit(E_EXCEPTION)
+

@@ -2,7 +2,7 @@
 #define DIR=..
 #endif
 
-#edit create object meter test_1 parent=1088259E nominal_voltage=120V phases=ABC -i=${DIR:-.}/test_edit_input.json -o=test_edit_output.json
+#edit insert object class=meter name=test_1 parent=1088259E nominal_voltage=120V phases=ABC -i=${DIR:-.}/test_edit_input.json -o=test_edit_output.json
 
 #ifexist ../test_edit_output.json
 #on_exit 0 diff ../test_edit_output.json test_edit_output.json
