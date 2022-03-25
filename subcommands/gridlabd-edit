@@ -23,7 +23,7 @@ OPTIONS
 
 COMMANDS
 
-- `create NAME`
+- `create NAME [ARGUMENTS ...]`
 
 - `delete {class,filter,global,module,object,schedule} NAME [--force]`
 
