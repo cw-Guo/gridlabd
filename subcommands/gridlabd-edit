@@ -1,144 +1,38 @@
 #!/usr/local/bin/python3
-"""GridLAB-D edit subcommand
 
-SYNTAX
-
-Shell:
-
-~~~
-sh$ gridlabd edit [OPTIONS ...] COMMAND [ARGUMENTS ...]
-~~~
-
-GLM:
-
-~~~
-#edit [OPTIONS ...] COMMAND [ARGUMENTS ...]
-~~~
-
-OPTIONS
-
-- `-i|--inputfile=INPUTFILE`: file to read (default `/dev/stdin`)
-
-- `-o|--outputfile=OUTPUTFILE`: file to write (default `/dev/stdout`)
-
-COMMANDS
-
-- `create NAME [ARGUMENTS ...]`
-
-- `delete {class,filter,global,module,object,schedule} NAME [--force]`
-
-- `insert {class,filter,global,module,object,schedule} [PROPERTY=SPEC ...]`
-
-- `update {class,filter,global,module,object,schedule} [PROPERTY=SPEC ...]`
-
-
-DESCRIPTION
-
-"""
-
-import sys, os
+import sys, os, warnings
 import gridlabd_edit as gld
-
-VERBOSE = False
-DEBUG = False
-QUIET = False
-WARNING = True
-
-E_OK = 0 # no error
-E_INVALID = 1 # invalid arguments
-E_FAILED = 2 # gridlabd error
-E_ACCESS = 3 # file access error
-E_SYNTAX = 9 # syntax error
-E_EXCEPTION = 99 # exception caught
-
-INPUTFILE = sys.stdin
-OUTPUTFILE = sys.stdout
-COMMANDS = []
-KEYWORDS = {}
-DATA = None
 
 def main(args):
 
-    global COMMANDS
-    global KEYWORDS
-    
-    for arg in args:
+    if gld.parse(args):
 
-        # extract arg specs
-        spec = arg.split("=")
-        tag = spec[0]
-        if len(spec) == 1:
-            value = None
-        elif len(spec) == 2:
-            value = spec[1]
-        else:
-            value = spec[1:]
+        verbose(f"INPUTFILE = {gld.INPUTFILE}")
+        verbose(f"OUTPUTFILE = {gld.OUTPUTFILE}")
+        verbose(f"COMMANDS = {gld.COMMANDS}")
+        verbose(f"KEYWORDS = {gld.KEYWORDS}")
 
-        if tag in ['-d','--debug']:
-            global DEBUG
-            DEBUG = True
-        elif tag in ['-i','--inputfile']:
-            global INPUTFILE
-            if value:
-                INPUTFILE = open(value,"r")
-            else:
-                INPUTFILE = sys.stdin
-        elif tag in ['-o','--outputfile']:
-            global OUTPUTFILE
-            if value:
-                OUTPUTFILE = open(value,"w")
-            else:
-                OUTPUTFILE = sys.stdout
-        elif tag in ['-q','--quiet']:
-            global QUIET
-            QUIET = True
-        elif tag in ['-v','--verbose']:
-            global VERBOSE
-            VERBOSE = True
-        elif tag in ['-w','--warning']:
-            global WARNING
-            WARNING = False
-        elif value != None:
-            if tag in KEYWORDS.keys():
-                raise Exception(f"{arg}: key '{tag}'' already specified")
-            else:
-                KEYWORDS[tag] = value
-        elif not tag.startswith('-') \
-                and ( len(COMMANDS) == 0 \
-                    or len(COMMANDS) <= abs(gld.VALID_COMMANDS[COMMANDS[0]])
-                ):
-            if len(COMMANDS) == 0 and gld.VALID_COMMANDS[arg] == 0:
-                    INPUTFILE = None
-            COMMANDS.append(arg)
-        elif len(COMMANDS) > 0 and gld.VALID_COMMANDS[COMMANDS[0]] < 0:
-            KEYWORDS[tag] = value
-        else:
-            error(f"'{arg}' is invalid",E_INVALID)
+        if gld.INPUTFILE and gld.INPUTFILE.isatty():
+            error("input is a tty",gld.E_INVALID)
 
-    verbose(f"INPUTFILE = {INPUTFILE}")
-    verbose(f"OUTPUTFILE = {OUTPUTFILE}")
-    verbose(f"COMMANDS = {COMMANDS}")
-    verbose(f"KEYWORDS = {KEYWORDS}")
+        if gld.INPUTFILE:
+            gld.DATA = gld.read(gld.INPUTFILE)
 
-    if INPUTFILE and INPUTFILE.isatty():
-        error("input is a tty",E_INVALID)
+        verbose(f"INPUT = {gld.DATA}")
 
-    global DATA
-    if INPUTFILE:
-        DATA = gld.read(INPUTFILE)
+        RESULT = gld.command(gld.DATA,*gld.COMMANDS,**gld.KEYWORDS)
 
-    verbose(f"DATA = {DATA}")
+        verbose(f"OUTPUT = {RESULT}")
 
-    RESULT = gld.command(DATA,*COMMANDS,**KEYWORDS)
-
-    verbose(f"RESULT = {DATA}")
-
-    gld.write(RESULT,OUTPUTFILE,indent=4)
+        if gld.OUTPUTFILE:
+            gld.write(RESULT,gld.OUTPUTFILE,indent=4)
 
 def error(msg,code=None):
-    if not QUIET:
+    if gld.MODE == "RELAX":
+        return warning(msg)
+    if not gld.QUIET:
         print(f"ERROR [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
-    if DEBUG:
+    if gld.DEBUG:
         print("Traceback (most recent call last):",file=sys.stderr)
         etype,evalue,etrace = sys.exc_info()
         import traceback
@@ -148,15 +42,21 @@ def error(msg,code=None):
         exit(code)
 
 def warning(msg):
-    if WARNING:
+    if gld.MODE == "STRICT":
+        return error(msg,gld.E_FAILED)
+    if gld.WARNING:
         print(f"WARNING [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
 
+def _warning(msg,category,filename,lineno,file,line):
+    warning(f"{msg} (category={category.__name__}, filename={os.path.split(filename)[1]}, lineno={lineno})")
+warnings.showwarning = _warning
+
 def debug(msg):
-    if DEBUG:
+    if gld.DEBUG:
         print(f"DEBUG [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
 
 def verbose(msg):
-    if VERBOSE:
+    if gld.VERBOSE:
         print(f"VERBOSE [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
 
 if __name__ == "__main__":
@@ -165,7 +65,7 @@ if __name__ == "__main__":
         
         if len(sys.argv) == 1:
             print("Syntax: gridlabd edit [OPTIONS ...] COMMAND [ARGUMENTS ...]",file=sys.stderr)
-            exit(E_SYNTAX)
+            exit(gld.E_SYNTAX)
         
         main(sys.argv[1:])
 
@@ -175,17 +75,17 @@ if __name__ == "__main__":
 
     except FileNotFoundError as err:
 
-        error(err,E_ACCESS)
+        error(err,gld.E_ACCESS)
 
     except gld.GridlabdError as err:
 
-        error(err,E_FAILED)
+        error(err,gld.E_FAILED)
 
     except Exception as err:
 
         etype, evalue, etrace = sys.exc_info()
         ename = etype.__name__
-        efile = etrace.tb_frame.f_code.co_filename
+        efile = os.path.split(etrace.tb_frame.f_code.co_filename)[1]
         eline = etrace.tb_lineno
-        error(f"{evalue} (exception={ename}, file={efile}, line={eline}, exitcode={E_EXCEPTION})",E_EXCEPTION)
+        error(f"{evalue} (exception={ename}, filename={efile}, lineno={eline}, exitcode={gld.E_EXCEPTION})",gld.E_EXCEPTION)
 
