@@ -5,30 +5,23 @@ import gridlabd_edit as gld
 
 def main(args):
 
-    if gld.parse(args):
+    glm = gld.GridlabdModel(args=args)
 
-        verbose(f"INPUTFILE = {gld.INPUTFILE}")
-        verbose(f"OUTPUTFILE = {gld.OUTPUTFILE}")
-        verbose(f"COMMANDS = {gld.COMMANDS}")
-        verbose(f"KEYWORDS = {gld.KEYWORDS}")
+    verbose(f"INPUTFILE = {glm.INPUTFILE}")
+    verbose(f"OUTPUTFILE = {glm.OUTPUTFILE}")
+    verbose(f"COMMANDS = {glm.COMMANDS}")
+    verbose(f"KEYWORDS = {glm.KEYWORDS}")
+    verbose(f"DATA = {glm.DATA}")
 
-        if gld.INPUTFILE and gld.INPUTFILE.isatty():
-            error("input is a tty",gld.E_INVALID)
+    RESULT = glm.command(glm.DATA,*glm.COMMANDS,**glm.KEYWORDS)
 
-        if gld.INPUTFILE:
-            gld.DATA = gld.read(gld.INPUTFILE)
+    verbose(f"RESULT = {RESULT}")
 
-        verbose(f"INPUT = {gld.DATA}")
-
-        RESULT = gld.command(gld.DATA,*gld.COMMANDS,**gld.KEYWORDS)
-
-        verbose(f"OUTPUT = {RESULT}")
-
-        if gld.OUTPUTFILE:
-            gld.write(RESULT,gld.OUTPUTFILE,indent=4)
+    if glm.OUTPUTFILE:
+        glm.write(RESULT,glm.OUTPUTFILE,indent=4)
 
 def error(msg,code=None):
-    if gld.MODE == "RELAX":
+    if gld.WARNINGMODE == "RELAX":
         return warning(msg)
     if not gld.QUIET:
         print(f"ERROR [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
@@ -42,7 +35,7 @@ def error(msg,code=None):
         exit(code)
 
 def warning(msg):
-    if gld.MODE == "STRICT":
+    if gld.WARNINGMODE == "STRICT":
         return error(msg,gld.E_FAILED)
     if gld.WARNING:
         print(f"WARNING [gridlabd-edit]: {msg}",file=sys.stderr,flush=True)
