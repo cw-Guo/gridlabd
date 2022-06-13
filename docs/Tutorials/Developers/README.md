@@ -1,3 +1,5 @@
 # Videos
 
-1. [video:PmOxQYfVH6w](Introduction)
+Session 1:
+[video:PmOxQYfVH6w]
+
