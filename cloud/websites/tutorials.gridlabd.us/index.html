@@ -44,7 +44,7 @@
 	}
 	library_csv = reader.response.trim().split(/\r\n|\n/);
 	first = true
-	group = false
+	group = 0
 	select = ""
 	for ( record of library_csv )
 	{
@@ -62,7 +62,7 @@
 				select += "\t</OPTGROUP>\n";
 			}
 			select += "\t<OPTGROUP LABEL=\"" + info[0] + "\">\n";
-			group = true;
+			group = 1;
 		}
 		else if ( info.length === 3 )
 		{
@@ -73,14 +73,15 @@
 				select += " SELECTED";
 				first = false;
 			}
-			select += ">" + info[1] + "</OPTION>\n"
+			select += ">" + group + ". " + info[1] + "</OPTION>\n"
+			group += 1;
 		}
 		else
 		{
 			console.log(info + " is invalid (len = " + info.length + ")");
 		}
 	}
-	if ( group )
+	if ( group > 0 )
 	{
 		select += "\t</OPTGROUP>\n";
 	}
