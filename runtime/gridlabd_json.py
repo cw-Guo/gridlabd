@@ -138,6 +138,17 @@ class GldRunner:
         """Get errors"""
         return self.result.stderr.decode().strip().split("\n|\r\n")
 
+class GldModules:
+    """GridLAB-D Module Data"""
+    def __init__(self,model):
+        self.data = model["modules"]
+    def names(self):
+        return list(self.data.keys())
+    def __getitem__(self,name):
+        return self.data[name]
+    def load(self,name):
+        raise NotImplemented("TODO")
+
 class GldModel:
     """GridLAB-D Model Data"""
     def __init__(self,**kwargs):
@@ -158,10 +169,10 @@ class GldModel:
         return self.data["application"]
 
     def get_version(self):
-        return self.data["version"]
+        return self.data["version"].split(".")
 
     def get_modules(self):
-        return self.data["modules"]
+        return GldModules(self.data)
 
     def get_classes(self):
         return self.data["classes"]
@@ -196,13 +207,13 @@ if __name__ == "__main__":
         def test_new_model(self):
             model = GldModel()
             self.assertEqual(model.get_application(),"gridlabd")
-            self.assertEqual(model.get_modules(),{})
+            self.assertEqual(model.get_modules().names(),[])
             self.assertEqual(model.get_classes(),{})
             self.assertEqual(model.get_objects(),{})
 
         def test_runner(self):
             model = GldModel()
             result = GldRunner("--version=number")
-            self.assertEqual(result.get_output()[0],model.get_version())
+            self.assertEqual(result.get_output()[0].split("."),model.get_version())
 
     unittest.main()
