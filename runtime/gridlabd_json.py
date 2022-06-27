@@ -24,6 +24,9 @@ OPTIONS = {
     'verbose' : False,
     'exit_on_error' : False,
 }
+APPLICATION = "gridlabd"
+VERSION = None
+NEWMODEL = None
 
 def enable(option):
     """Enable module option"""
@@ -70,7 +73,7 @@ def error(msg,code=None):
         raise GldException(msg)
     if not OPTIONS['quiet']:
         print(f"ERROR [{APPNAME}]: {msg}",file=sys.stderr)
-    if type(code) is int and not OPTIONS['exit_on_error']:
+    if type(code) is int and OPTIONS['exit_on_error']:
         exit(code)
 
 def temporary_name(extension=""):
@@ -94,6 +97,7 @@ class GldException(Exception):
 class GldRunner:
     """GridLAB-D runner"""
     command = "gridlabd"
+    silent = False
 
     def __init__(self,args=[]):
         """Run GridLAB-D"""
@@ -108,18 +112,25 @@ class GldRunner:
         args.extend(["-o",tmpname])
         verbose(f"Running '{' '.join(args)}'")
         self.result = subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        if self.result.returncode:
+        if self.result.returncode and not self.silent:
             error(f"exit code {self.result.returncode}")
-        if self.result.stdout.decode():
+        if self.result.stdout.decode() and not self.silent:
             debug(self.result.stdout.decode())
-        if self.result.stderr.decode():
+        if self.result.stderr.decode() and not self.silent:
             error(self.result.stderr.decode())
         if self.result.returncode == 0:
             with open(tmpname,"r") as fh:
                 self.model = json.load(fh)
+                global APPLICATION
+                assert(self.model["application"]==APPLICATION)
+                global VERSION
+                if VERSION:
+                    assert(self.model["version"]==VERSION)
+                else:
+                    VERSION = self.model["version"]
                 cleanup_tempfile(tmpname)
         else:
-            raise GldException(f"gridlabd run {args} failed (code {self.result.returncode}): {self.result.stderr}")
+            raise GldException(f"gridlabd run {args} failed (code {self.result.returncode}): {self.result.stderr.decode()}")
         debug(f"model = {self.model}")
 
     def get_exitcode(self):
@@ -138,22 +149,77 @@ class GldRunner:
         """Get errors"""
         return self.result.stderr.decode().strip().split("\n|\r\n")
 
-class GldModules:
+class GldModule:
     """GridLAB-D Module Data"""
+    def __init__(self,modules,name):
+        self.name = name
+        self.data = modules[name]
+    def get_name(self):
+        return self.name
+    def get_version(self):
+        return ".".join([self.data["major"],self.data["minor"]])
+
+class GldModules:
+    """GridLAB-D Module List"""
     def __init__(self,model):
-        self.data = model["modules"]
-    def names(self):
+        self.data = model.data["modules"]
+    def get_names(self):
         return list(self.data.keys())
     def __getitem__(self,name):
-        return self.data[name]
-    def load(self,name):
-        raise NotImplemented("TODO")
+        return GldModule(self.data,name)
+    def load(self,name,model=None):
+        """Load a module, optionally into a model"""
+        result = GldRunner(["--modhelp",name])
+        if not name in result.model["modules"].keys():
+            error(f"module '{name}' load failed")
+        if model:
+            model["modules"].update(result.model["modules"])
+            model["classes"].update(result.model["classes"])
+            return model
+        else:
+            return result.model
+
+class GldProperties:
+    def __init__(self,properties):
+        self.data = properties
+
+class GldProperty:
+    def __init__(self,data):
+        self.data = data
+
+class GldClass:
+    def __init__(self,classes,name):
+        self.name = name
+        self.data = classes[name]
+    def get_name(self):
+        return self.name
+    def __getitem__(self,item):
+        value = self.data[item]
+        if type(value) is str:
+            return value
+        else:
+            return GldProperty(value)
+    def get_properties(self):
+        return GldProperties(self.data)
+
+class GldClasses:
+    def __init__(self,model,module=None):
+        self.data = model.data["classes"]
+    def get_names(self):
+        return list(self.data.keys())
+    def __getitem__(self,name):
+        return GldClass(self.data,name)
+    def define(self,name,properties):
+        pass
 
 class GldModel:
     """GridLAB-D Model Data"""
     def __init__(self,**kwargs):
         """Create GridLAB-D model"""
-        self.data = GldRunner().model
+        global NEWMODEL
+        if not NEWMODEL:
+            NEWMODEL = GldRunner().get_model()
+        self.data = NEWMODEL
 
     def load(self,**kwargs):
         """Load GridLAB-D model"""
@@ -172,10 +238,23 @@ class GldModel:
         return self.data["version"].split(".")
 
     def get_modules(self):
-        return GldModules(self.data)
+        return GldModules(self)
 
-    def get_classes(self):
-        return self.data["classes"]
+    def get_module(self,name):
+        return GldModules(self)[name]
+
+    def get_classes(self,module=None):
+        if module:
+            result = {}
+            for key,data in self.data["classes"].items():
+                if data["module"] == module:
+                    result[key] = data
+            return result
+        else:
+            return self.data["classes"]
+
+    def get_class(self,name,module=None):
+        return GldClass(self.get_classes(module),name)
 
     def get_objects(self):
         return self.data["objects"]
@@ -198,22 +277,45 @@ class GldModel:
         else:
             return {}
 
+    def add_module(self,name):
+        self.get_modules().load(name,self.data)
+
 if __name__ == "__main__":
 
     import unittest
 
     class TestModule(unittest.TestCase):
 
-        def test_new_model(self):
-            model = GldModel()
-            self.assertEqual(model.get_application(),"gridlabd")
-            self.assertEqual(model.get_modules().names(),[])
-            self.assertEqual(model.get_classes(),{})
-            self.assertEqual(model.get_objects(),{})
-
-        def test_runner(self):
+        def test1_runner(self):
             model = GldModel()
             result = GldRunner("--version=number")
             self.assertEqual(result.get_output()[0].split("."),model.get_version())
+
+        def test2_new_model(self):
+            model = GldModel()
+            self.assertEqual(model.get_application(),"gridlabd")
+            self.assertEqual(model.get_modules().get_names(),[])
+            self.assertEqual(model.get_classes(),{})
+            self.assertEqual(model.get_objects(),{})
+
+        def test3_load_module_bad(self):
+            GldRunner.silent = True
+            model = GldModel()
+            try:
+                model.add_module("non_existent")
+                self.assertFalse("non_existent module load succeeded unexpectedly")
+            except GldException as err:
+                pass # failure is expected
+            except:
+                self.assertFalse("non_existent module load failed in an unexpected way")
+
+        def test3_load_module(self):
+            GldRunner.silent = True
+            model = GldModel()
+            model.add_module("powerflow")
+            module = model.get_module("powerflow")
+            self.assertTrue(VERSION.startswith(module.get_version()))
+            nodeclass = model.get_class("node","powerflow")
+            self.assertTrue(nodeclass["parent"]=="powerflow_object")
 
     unittest.main()
