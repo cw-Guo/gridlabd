@@ -104,28 +104,40 @@ def error(msg,code=None):
 class GldTemporaryFile:
 
     def __init__(self,extension="",root=None):
-        """Get a temporary filename"""
+        """Get a temporary filename
+
+        Constructor:
+
+            extension   specify the file extension to use (default "")
+                        use "/" to create a temporary folder
+            root        specify the root folder to use
+
+        Destructor:
+
+            The file or folder is deleted when the object is deleted
+
+        Members:
+
+            name
+        """
         if root == None:
             root = os.getenv("TMP")
             if not root:
                 root = "/tmp"
             root += "/gridlabd_json"
         os.makedirs(os.path.dirname(root),exist_ok=True)
-        self.tmpname = root+"/"+hex(random.randrange(1,2**128-1))[2:]+extension
+        self.name = root+"/"+hex(random.randrange(1,2**128-1))[2:]+extension
 
     def __del__(self):
         """Delete a temporary filename"""
-        if hasattr(self,"tmpname") and os.path.exists(self.tmpname):
-            if self.tmpname.endswith("/"):
-                shutil.rmtree(self.tmpname)
+        if hasattr(self,"name") and os.path.exists(self.name):
+            if self.name.endswith("/"):
+                shutil.rmtree(self.name)
             else:
-                os.remove(self.tmpname)
+                os.remove(self.name)
 
-    def __str__(self):
-        return self.tmpname
-
-    def __repr__(self):
-        return self.tmpname
+    def open(self,mode):
+        return open(self.name,mode)
 
 class GldException(Exception):
     """GridLAB-D JSON API Exception"""
@@ -143,7 +155,7 @@ class GldRunner:
     def __init__(self,args=[]):
         """Run GridLAB-D"""
         tmpdir = GldTemporaryFile("/")
-        tmpname = GldTemporaryFile(".json",str(tmpdir))
+        tmpfile = GldTemporaryFile(".json",tmpdir.name)
         if type(args) is str:
             args = args.split(" ")
         if type(args) is list:
@@ -153,7 +165,7 @@ class GldRunner:
                     args.insert(1,option)
         else:
             raise GldException("invalid argument type")
-        args.extend(["-o",str(tmpname)])
+        args.extend(["-o",tmpfile.name])
         verbose(f"Running '{' '.join(args)}'")
         self.result = subprocess.run(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         if self.result.returncode and not self.silent:
@@ -166,7 +178,7 @@ class GldRunner:
             error(self.result.stderr.decode())
         self.errors = self.get_errors()
         if self.result.returncode == 0:
-            with open(str(tmpname),"r") as fh:
+            with tmpfile.open("r") as fh:
                 self.data = json.load(fh)
                 global APPLICATION
                 assert(self.data["application"]==APPLICATION)
@@ -320,9 +332,9 @@ class GldModel:
     def run(self,options=[]):
         """Run the simulation"""
         tmpdir = GldTemporaryFile("/")
-        tmpname = GldTemporaryFile(".json",str(tmpdir))
-        self.save(str(tmpname))
-        arglist = [str(tmpname)]
+        tmpfile = GldTemporaryFile(".json",tmpdir.name)
+        self.save(tmpfile.name)
+        arglist = [tmpfile.name]
         arglist.extend(options)
         return GldRunner(arglist).model
 
