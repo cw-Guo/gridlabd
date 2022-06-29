@@ -326,6 +326,7 @@ class GldModel:
             if not NEWMODEL:
                 NEWMODEL = GldRunner().get_model().data
             self.data = deepcopy(NEWMODEL)
+            
 
     def get_elements(self):
         """Get list of model data elements"""
@@ -439,13 +440,45 @@ class GldModel:
                     del result[name]
         return result
 
-    def get_class(self,name):
+    def get_class(self,name,no_exception=False):
         """Get a class"""
-        return GldClass(name,self.data["classes"][name])
+        try:
+            return GldClass(name,self.data["classes"][name])
+        except:
+            if no_exception:
+                return False
+            raise
 
-    def add_class(self,name,data):
+    def add_class(self,name,data,no_exception=False):
         """Add a class"""
-        raise NotImplemented("add_class")
+        try:
+            self.check_class(name,data)
+            if name in self.data["classes"].keys():
+                raise GldException(f"class '{name}' is already defined")
+            self.data["classes"]
+        except:
+            if no_exception:
+                return False
+            raise
+        return True
+
+    def check_class(self,name,data,no_exception=False):
+        try:
+            if "module" in data.keys() and not data["module"] in self.data["modules"].keys():
+                raise GldException(f"class '{name}' refers to non-existent module '{data['module']}'")
+            for key,value in data.items():
+                if "type" not in value.keys():
+                    raise GldException(f"class '{name}' is missing a type specification")
+                if not value["type"] in self.data["types"].keys():
+                    raise GldException(f"class '{name}' uses an invalid type '{value['type']}'")
+                for key in data.keys():
+                    if not key in ["type","access","keywords","flags","description"]:
+                        raise GldException(f"class '{name}' includes an invalid specification for '{key}'")
+        except:
+            if no_exception:
+                return False
+            raise
+        return True
 
     def isa_class(self,name,kindof):
         """Check whether a class is a kindof another class"""
@@ -525,20 +558,52 @@ class GldModel:
         """Get a global variable"""
         return GldGlobal(name,self.data["globals"][name])
 
-    def set_global(self,name,data):
+    def set_global(self,name,data,no_exception=True):
         """Set a global variable"""
-        raise NotImplemented("set_global")
+        try:
+            self.check_global(name,data)
+            self.data["globals"][name] = data
+        except:
+            if no_exception:
+                return False
+            raise
+        return True
 
-    def add_global(self,name,data,type="char1024",access="PUBLIC"):
+    def add_global(self,name,data,type="char1024",access="PUBLIC",no_exception=True):
         """Add a global variable"""
-        raise NotImplemented("add_global")
+        try:
+            if name in self.data["globals"].keys():
+                raise GldException(f"global '{name}' is already defined")
+            self.check_global(name,data)
+        except:
+            if no_exception:
+                return False
+            raise
+        return True
 
-    def check_global(self,name,data):
-        raise NotImplemented("check_global")
+    def check_global(self,name,data,no_exception=False):
+        try:
+            for item in data.keys():
+                if not item in ["type","keywords","access","value"]:
+                    raise GldException(f"global '{name}' data item '{item}' is invalid")
+            if not data["type"] in self.data["types"].keys():
+                raise GldException(f"global '{name}' type '{data['type']}' is invalid")
 
-    def delete_global(self,name):
+        except:
+            if no_exception:
+                return False
+            raise
+        return True
+
+    def delete_global(self,name,no_exception=False):
         """Delete a global variables"""
-        raise NotImplemented("delete_global")
+        try:
+            del self.data["globals"]
+        except:
+            if no_exception:
+                return False
+            raise
+        return True
 
     #
     # Schedules
@@ -559,7 +624,7 @@ class GldModel:
 
     def add_schedule(self,name,data,no_exception=False):
         """Add a schedule"""
-        if not check_schedule(name,data,no_exception):
+        if not self.check_schedule(name,data,no_exception):
             return False
         self.data["schedules"][name] = data
         return True
