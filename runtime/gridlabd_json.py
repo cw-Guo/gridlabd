@@ -2,13 +2,19 @@
 
 Configuration options
 
-- debug            control debug output
-- exit_on_error    control whether errors cause exit
-- quiet            control error output
-- silent_running   silence output from GridLAB-D runner
-- verbose          control verbose output
-- warning          control warning output
+- debug             control debug output
+- exit_on_error     control whether errors cause exit
+- profile_unittest  enable profiling of unit tests
+- quiet             control error output
+- silent_running    silence output from GridLAB-D runner
+- verbose           control verbose output
+- warning           control warning output
 """
+
+__author__ = "David P. Chassin"
+__copyright__ = "Copyright (C) 2022, Regents of the Leland Stanford Junior University"
+__license__ = "BSD-3"
+__version__ = "0.0"
 
 import os
 import sys
@@ -22,13 +28,17 @@ import shutil
 APPNAME = os.path.splitext(os.path.basename(sys.argv[0]))[0]
 OPTIONS = {
     'debug' : False,
-    'warning' : True,
-    'quiet' : False,
-    'verbose' : False,
     'exit_on_error' : False,
-    'silent_runner' : True
+    'profile_unittest' : False,
+    'quiet' : False,
+    'save_unittest_output' : False,
+    'save_profile_output' : False,
+    'silent_runner' : True,
+    'verbose' : False,
+    'warning' : True,
 }
 CONFIGFILE = os.path.splitext(sys.argv[0])[0]+".conf"
+UNITTESTFILE = "gridlabd_json.txt"
 APPLICATION = "gridlabd"
 VERSION = None
 NEWMODEL = None
@@ -137,6 +147,7 @@ class GldTemporaryFile:
                 os.remove(self.name)
 
     def open(self,mode):
+        """Open the temporary file"""
         return open(self.name,mode)
 
 class GldException(Exception):
@@ -260,6 +271,22 @@ class GldProperty:
             setattr(self,key,value)
         self._elements = list(data.keys())
 
+    def check_value(self,value,model,no_exception=False):
+        try:
+            # validate object references
+            if model and pspec.type == "object" \
+                    and not value in model.get_objects().keys():
+                raise GldException(f"property '{self.name}' refers to undefined object '{value}'")
+            # TODO validate other object types
+        except GldException:
+            if no_exception:
+                return False
+            raise
+        except:
+            raise
+        return True
+
+
 class GldClass:
     """Class accessor
 
@@ -352,9 +379,11 @@ class GldModel:
 
     def get_modules(self,pattern=None):
         """Get list of loaded GridLAB-D modules"""
-        result = self.data["modules"]
+        result = deepcopy(self.data["modules"])
         if pattern:
-            raise NotImplemented("get_headers pattern")
+            for name in list(result.keys()):
+                if not re.match(pattern,name):
+                    del result[name]
         return result
 
     def get_module(self,name):
@@ -403,9 +432,11 @@ class GldModel:
                 if data["module"] == module:
                     result[key] = data
         else:
-            result = self.data["classes"]
+            result = deepcopy(self.data["classes"])
         if pattern:
-            raise NotImplemented("get_classes pattern")
+            for name in list(result.keys()):
+                if not re.match(pattern,name):
+                    del result[name]
         return result
 
     def get_class(self,name):
@@ -449,9 +480,11 @@ class GldModel:
 
     def get_types(self,pattern=None):
         """Get GridLAB-D data type specifications"""
-        result = self.data["types"]
+        result = deepcopy(self.data["types"])
         if pattern:
-            raise NotImplemented("get_types pattern")
+            for name in list(result.keys()):
+                if not re.match(pattern,name):
+                    del result[name]
         return result
 
     def get_type(self,name):
@@ -464,9 +497,11 @@ class GldModel:
 
     def get_headers(self,pattern=None):
         """Get all GridLAB-D object header data specifications"""
-        result = self.data["header"]
+        result = deepcopy(self.data["header"])
         if pattern:
-            raise NotImplemented("get_headers pattern")
+            for name in list(result.keys()):
+                if not re.match(pattern,name):
+                    del result[name]
         return result
 
     def get_header(self,name):
@@ -479,9 +514,11 @@ class GldModel:
 
     def get_globals(self,pattern=None):
         """Get all global variables"""
-        result = self.data["globals"]
+        result = deepcopy(self.data["globals"])
         if pattern:
-            raise NotImplemented("get_globals pattern")
+            for name in list(result.keys()):
+                if not re.match(pattern,name):
+                    del result[name]
         return result
 
     def get_global(self,name):
@@ -489,8 +526,15 @@ class GldModel:
         return GldGlobal(name,self.data["globals"][name])
 
     def set_global(self,name,data):
-        """Set a global variables"""
+        """Set a global variable"""
         raise NotImplemented("set_global")
+
+    def add_global(self,name,data,type="char1024",access="PUBLIC"):
+        """Add a global variable"""
+        raise NotImplemented("add_global")
+
+    def check_global(self,name,data):
+        raise NotImplemented("check_global")
 
     def delete_global(self,name):
         """Delete a global variables"""
@@ -502,22 +546,59 @@ class GldModel:
 
     def get_schedules(self,pattern=None):
         """Get all GridLAB-D schedules"""
-        result = self.data["schedules"]
+        result = deepcopy(self.data["schedules"])
         if pattern:
-            raise NotImplemented("get_schedules pattern")
+            for name in list(result.keys()):
+                if not re.match(pattern,name):
+                    del result[name]
         return result
 
     def get_schedule(self,name):
         """Get a schedule"""
         return GldSchedule(name,self.data["schedules"][name])
 
-    def add_schedule(self,name,data):
+    def add_schedule(self,name,data,no_exception=False):
         """Add a schedule"""
-        raise NotImplemented("add_schedule")
+        if not check_schedule(name,data,no_exception):
+            return False
+        self.data["schedules"][name] = data
+        return True
 
-    def delete_schedule(self,name,force=False,recurse=True):
+    def check_schedule(self,name,data,no_exception=False):
+        try:
+            if not type(data) is str:
+                raise GldException("schedule '{name}' data is not a string")
+        except GldException:
+            if no_exception:
+                return False
+            raise
+        except:
+            raise
+        return True
+
+    def delete_schedule(self,name,found='fail',no_exception=False):
         """Delete a schedule"""
-        raise NotImplemented("delete_schedule")
+        try:
+            if not name in self.data["schedules"].keys():
+                raise GldException(f"schedules '{name}' not found")
+            root = f"{name}("
+            for obj,data in self.data["objects"].items():
+                for prop,value in data.items():
+                    if value.beginswith(root):
+                        if found == 'fail':
+                            raise GldException(f"schedules '{name}' is in use by object '{obj}'")
+                        elif found == 'delete':
+                            delete_object(obj)
+                        elif found != 'ignore':
+                            raise Exception(f"option found='{found}' is invalid")
+            del self.data["schedules"][name]
+        except GldException:
+            if no_exception:
+                return False
+            raise
+        except:
+            raise
+        return True
 
     #
     # Filters
@@ -526,21 +607,70 @@ class GldModel:
     def get_filters(self,pattern=None):
         """Get all GridLAB-D filters"""
         if "filters" in self.data.keys():
-            result = self.data["filters"]
+            result = deepcopy(self.data["filters"])
         else:
             result = {}
         if pattern:
-            raise NotImplemented("get_filters pattern")
+            for name in list(result.keys()):
+                if not re.match(pattern,name):
+                    del result[name]
         return result
 
     def get_filter(self,name):
         return GldFilter(name,self.data["filters"][name])
 
-    def add_filter(self,name,data):
-        raise NotImplemented("add_filter")
+    def add_filter(self,name,data,no_exception=False):
+        try:
+            if "filters" in self.data.keys() and name in self.data["filters"]:
+                raise GldException(f"filter '{name}' is already defined")
+            self.check_filter(name,data)
+            self.data["filters"][name] = data
+        except GldException:
+            if no_exception:
+                return False
+            raise
+        except:
+            raise
+        return True
 
-    def delete_filter(self,name,force=False,recurse=True):
-        raise NotImplemented("delete_filter")
+    def check_filter(self,name,data,no_exception=False):
+        try:
+            for key in ["domain","timestep","numerator","denominator"]:
+                if not key in data.keys():
+                    raise GldException(f"filter '{name}' missing {key} specification")
+            for key in data.keys():
+                if key not in ["domain","timestep","timeskew","resolution","minimum","maximum","numerator","denominator"]:
+                    raise GldException(f"filter '{name}' key '{key}' is not recognized")
+        except GldException:
+            if no_exception:
+                return False
+            raise
+        except:
+            raise
+        return True
+
+    def delete_filter(self,name,found='fail',no_exception=False):
+        try:
+            if not "filters" in self.data.keys() or not name in self.data["filters"].keys():
+                raise GldException(f"filter '{name}' not found")
+            root = f"{name}("
+            for obj,data in self.data["objects"].items():
+                for prop,value in data.items():
+                    if value.beginswith(root):
+                        if found == 'fail':
+                            raise GldException(f"filter '{name}' is in use by object '{obj}'")
+                        elif found == 'delete':
+                            delete_object(obj)
+                        elif found != 'ignore':
+                            raise Exception(f"option found='{found}' is invalid")
+            del self.data["filters"][name]
+        except GldException:
+            if no_exception:
+                return False
+            raise
+        except:
+            raise
+        return True
 
     #
     # Objects
@@ -551,23 +681,90 @@ class GldModel:
             classes = [classes]
         if classes:
             result = {}
-            for key,data in self.data["objects"]:
+            for key,data in self.data["objects"].items():
                 if data["class"] in classes:
                     result[key] = data
         else:
-            result = self.data["objects"]
+            result = deepcopy(self.data["objects"])
         if pattern:
-            raise NotImplemented("get_objects pattern")
+            for name in list(result.keys()):
+                if not re.match(pattern,name):
+                    del result[name]
         return result
 
     def get_object(self,name):
         return GldObject(name,self.data["objects"][name])
 
-    def add_object(self,name,data):
-        raise NotImplemented("add_object")
+    def add_object(self,name,data,no_check=False,no_exception=False):
+        try:
+            if name in self.get_objects().keys():
+                raise GldException(f"object '{name}' exists already")
+            if not no_check:
+                self.check_object(name,data)
+            self.data["objects"][name] = data
+        except:
+            if no_exception:
+                return False
+            raise
+        return True
 
-    def delete_object(self,name,force=False,recurse=True):
-        raise NotImplemented("delete_object")        
+    def delete_object(self,name,found='fail',no_exception=False):
+        """Delete object
+
+            name    object name
+            found   dependent object disposition
+                    'fail' - delete fails
+                    'delete' - delete dependent object
+                    'ignore' - ignore dependent object
+        """
+        try:
+            if type(name) is list:
+                ok = True
+                for item in name:
+                    if not delete_object(item,found,no_exception):
+                        ok = False
+                return ok
+            data = self.data["objects"]["name"]
+            for prop,spec in self.get_class(data["class"]).items():
+                if self.get_property(prop,spec).type == "object" \
+                        and data[prop] in self.get_objects().keys():
+                    if found == 'fail':
+                        raise GldException(f"object '{name}' refers to object '{data[prop]}'")
+                    elif found == 'delete':
+                        delete_object(data[prop])
+                    elif found != 'ignore':
+                        raise Exception(f"option '{fail}' is invalid'")
+                del self.data["objects"][name]
+        except GldException:
+            if no_exception:
+                return False
+            raise
+        except:
+            raise
+        return True
+
+    def check_object(self,name,data,no_exception=False):
+        """Validate object specifications"""
+        try:
+            if "class" not in data.keys():
+                raise GldException(f"object '{name}' does not specify a class")
+            if not data["class"] in self.get_classes().keys():
+                raise GldException(f"object '{name}' class '{data['class']}' undefined")
+            oclass = self.get_class(data["class"])
+            for prop,value in data.items():
+                pspec = oclass.get_property(prop)
+                pspec.check_value(value)
+        except GldException:
+            if no_exception:
+                return False
+            raise
+        except:
+            raise
+        return True
+
+#
+# Only run when loaded as a script
+#
 
 if __name__ == "__main__":
 
@@ -663,6 +860,14 @@ if __name__ == "__main__":
             except:
                 self.assertFalse("delete_module fail unexpectedly")
 
+        def test_gldmodel_modulepattern(self):
+            model = GldModel()
+            model.add_module("powerflow")
+            model.add_module("residential")
+            modules = model.get_modules("r")
+            self.assertTrue("residential" in modules.keys())
+            self.assertFalse("powerflow" in modules.keys())
+
         #
         # Classes
         #
@@ -672,6 +877,13 @@ if __name__ == "__main__":
             oclass = model.get_class("node")
             self.assertTrue("module" in oclass._elements)
             self.assertTrue(oclass.module=="powerflow")
+
+        def test_gldmodel_getclass_pattern(self):
+            model = GldModel()
+            model.add_module("powerflow")
+            classes = model.get_classes("powerflow","triplex_")
+            self.assertTrue("triplex_meter" in classes.keys())
+            self.assertFalse("node" in classes.keys())
 
         def test_gldmodel_isaclass(self):
             model = GldModel()
@@ -687,7 +899,6 @@ if __name__ == "__main__":
             properties = oclass.find_properties("voltage.*")
             self.assertGreater(len(properties),0)
 
-
         #
         # Run
         #
@@ -696,4 +907,19 @@ if __name__ == "__main__":
             result = model.run()
             self.assertEqual(model,result)
 
-    unittest.main()
+    #
+    # Unittest and profiler
+    #
+
+    if OPTIONS['save_unittest_output']:
+        sys.stdout = open(UNITTESTFILE,"w")
+        if OPTIONS['save_profile_output']:
+            sys.stderr = sys.stdout
+    elif OPTIONS['save_profile_output']:
+        sys.stdout = open(UNITTESTFILE,"w")
+    if OPTIONS['profile_unittest']:
+        import cProfile
+        runner = cProfile.run
+    else:
+        runner = eval
+    runner('unittest.main()')
