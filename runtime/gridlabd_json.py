@@ -1,14 +1,32 @@
-"""GridLAB-D JSON API
+"""GridLAB-D JSON Model API
 
-Configuration options
+General API conventions/guidlines:
 
-- debug             control debug output
-- exit_on_error     control whether errors cause exit
-- profile_unittest  enable profiling of unit tests
-- quiet             control error output
-- silent_running    silence output from GridLAB-D runner
-- verbose           control verbose output
-- warning           control warning output
+- The global CONFIG controls the behavior of the module.  This global is loaded
+  from the file gridlabd_json.conf, which is also located in the runtime folder.
+  If the file is absent or damaged, it is (re)created from the default values 
+  specified in the module source code. Options can be enabled and disabled using
+  the enable() and disable() methods.
+
+- Most methods accept 'no_exception=True' to disable raising exception. In
+  such cases, the return values is either None or False according to whether
+  the function is expected to return something when successful.  When the
+  call fails, the class set _lasterror to the value of the exception
+  raised.
+
+- When the module is run as a script, it executes a self-test sequence using
+  the unittest python model.  The output of the unit test can be saved to a 
+  file by enabling the CONFIG['save_unittest'] option.  Profiling can also
+  be performed by enabling the CONFIG['profile_unittest'] option. The profile
+  can be saved as well by enabling the CONFIG['save_profile'] option.
+
+Example:
+
+>>> import gridlabd_json as gld
+>>> m = gld.GldModel()
+>>> m.save("new.json")
+>>> m.add_module("powerflow")
+
 """
 
 __author__ = "David P. Chassin"
@@ -26,13 +44,13 @@ from copy import deepcopy
 import shutil
 
 APPNAME = os.path.splitext(os.path.basename(sys.argv[0]))[0]
-OPTIONS = {
+CONFIG = {
     'debug' : False,
     'exit_on_error' : False,
     'profile_unittest' : False,
     'quiet' : False,
-    'save_unittest_output' : False,
-    'save_profile_output' : False,
+    'save_unittest' : False,
+    'save_profile' : False,
     'silent_runner' : True,
     'verbose' : False,
     'warning' : True,
@@ -42,6 +60,10 @@ UNITTESTFILE = "gridlabd_json.txt"
 APPLICATION = "gridlabd"
 VERSION = None
 NEWMODEL = None
+
+#
+# CONFIG options
+#
 
 def enable(option):
     """Enable configuration option"""
@@ -56,25 +78,25 @@ def set_option(option,value):
     old_value = get_option(option)
     if type(old_value) != type(value):
         raise GldException(f"option '{option}' type mismatch")
-    OPTIONS[option] = value
+    CONFIG[option] = value
     return old_value
 
 def get_option(option):
     """Get configuration option"""
-    if option not in OPTIONS.keys():
+    if option not in CONFIG.keys():
         raise GldException(f"option '{option}' is invalid")
-    return OPTIONS[option]
+    return CONFIG[option]
 
 def save_options(file=CONFIGFILE):
     """Save configuration options"""
     with open(CONFIGFILE,"w") as fh:
-        json.dump(OPTIONS,fh,indent=4)
+        json.dump(CONFIG,fh,indent=4)
 
 def load_options(file=CONFIGFILE):
     """Load configuration options"""
     with open(CONFIGFILE,"r") as fh:
         config = json.load(fh)
-        OPTIONS.update(config)
+        CONFIG.update(config)
 
 if os.path.exists(CONFIGFILE):
     try:
@@ -85,31 +107,39 @@ if os.path.exists(CONFIGFILE):
 if not os.path.exists(CONFIGFILE):
     save_options()
 
+#
+# Output
+#
+
 def debug(msg):
     """Output debug message"""
-    if OPTIONS['debug']:
+    if CONFIG['debug']:
         print(f"DEBUG [{APPNAME}]: {msg}",file=sys.stderr)
 
 def warning(msg):
     """Output warning message"""
-    if OPTIONS['warning']:
+    if CONFIG['warning']:
         print(f"WARNING [{APPNAME}]: {msg}",file=sys.stderr)
 
 def verbose(msg):
     """Output warning message"""
-    if OPTIONS['verbose']:
+    if CONFIG['verbose']:
         print(f"VERBOSE [{APPNAME}]: {msg}",file=sys.stderr)
 
 def error(msg,code=None):
     """Output error message"""
-    if OPTIONS['debug']:
+    if CONFIG['debug']:
         if type(code) is int:
             msg += f" (code {code})"
         raise GldException(msg)
-    if not OPTIONS['quiet']:
+    if not CONFIG['quiet']:
         print(f"ERROR [{APPNAME}]: {msg}",file=sys.stderr)
-    if type(code) is int and OPTIONS['exit_on_error']:
+    if type(code) is int and CONFIG['exit_on_error']:
         exit(code)
+
+#
+# Temporary file/folder management
+#
 
 class GldTemporaryFile:
 
@@ -150,18 +180,23 @@ class GldTemporaryFile:
         """Open the temporary file"""
         return open(self.name,mode)
 
+#
+# Exception class
+#
+
 class GldException(Exception):
     """GridLAB-D JSON API Exception"""
     pass
 
-class NotImplemented(Exception):
-    pass
+#
+# GridLAB-D runner class
+#
 
 class GldRunner:
     """GridLAB-D runner"""
     command = "gridlabd"
     options = []
-    silent = OPTIONS['silent_runner']
+    silent = CONFIG['silent_runner']
 
     def __init__(self,args=[]):
         """Run GridLAB-D"""
@@ -229,6 +264,10 @@ class GldRunner:
             result = result.split(split)
         return result
 
+#
+# GridLAB-D module class
+#
+
 class GldModule:
     """Module accessor
 
@@ -251,6 +290,10 @@ class GldModule:
         self._elements = list(data.keys())
         self._version = '.'.join([self.major,self.minor])
 
+# 
+# GridLAB-D property class
+#
+
 class GldProperty:
     """Property accessor
 
@@ -270,6 +313,7 @@ class GldProperty:
         for key,value in data.items():
             setattr(self,key,value)
         self._elements = list(data.keys())
+        self._lasterror = None
 
     def check_value(self,value,model,no_exception=False):
         try:
@@ -278,14 +322,16 @@ class GldProperty:
                     and not value in model.get_objects().keys():
                 raise GldException(f"property '{self.name}' refers to undefined object '{value}'")
             # TODO validate other object types
-        except GldException:
-            if no_exception:
-                return False
-            raise
+            return True
         except:
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
+#
+# GridLAB-D class class
+#
 
 class GldClass:
     """Class accessor
@@ -305,6 +351,7 @@ class GldClass:
         for key,value in data.items():
             setattr(self,key,value)
         self._elements = list(data.keys())
+        self._lasterror = None
 
     def find_properties(self,pattern=".*"):
         result = []
@@ -314,6 +361,49 @@ class GldClass:
                 if type(value) is dict:
                     result.append(key)
         return result
+
+#
+# GridLAB-D object class
+#
+
+class GldObject:
+    """Object accessor"""
+    def __init__(self,name,data):
+        self.name = name
+        for key,value in data.items():
+            setattr(self,key,value)
+        self._elements = list(data.keys())
+        self._lasterror = None
+
+#
+# GridLAB-D schedule class
+#
+
+class GldSchedule:
+    """TODO"""
+    def __int__(self,name,data):
+        self.name = name
+        for key,value in data.items():
+            setattr(self,key,value)
+        self._elements = list(data.keys())
+        self._lasterror = None
+
+#
+# GridLAB-D filter class
+#
+
+class GldFilter:
+    """TODO"""
+    def __init(self,name,data):
+        self.name = name
+        for key,value in data.items():
+            setattr(self,key,value)
+        self._elements = list(data.keys())
+        self._lasterror = None
+        
+#
+# GridLAB-D model class
+#
 
 class GldModel:
     """GridLAB-D Model Data"""
@@ -326,6 +416,7 @@ class GldModel:
             if not NEWMODEL:
                 NEWMODEL = GldRunner().get_model().data
             self.data = deepcopy(NEWMODEL)
+        self._lasterror = None
             
 
     def get_elements(self):
@@ -335,36 +426,69 @@ class GldModel:
     def __getitem__(self,item):
         return self.data[item]
 
-    def load(self,**kwargs):
+    def load(self,filename,no_exception=False):
         """Load GridLAB-D model"""
-        with open(kwargs['filename'],'r') as fh:
-            self.data = json.load(fh)
+        try:
+            with open(filename,'r') as fh:
+                self.data = json.load(fh)
+            return self.data
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None            
 
-    def save(self,filename):
+    def save(self,filename,no_exception=False):
         """Save GridLAB-D model"""
-        with open(filename,'w') as fh:
-            json.dump(self.data,fh)
+        try:
+            with open(filename,'w') as fh:
+                json.dump(self.data,fh,indent=4)
+            return True
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
-    def get_application(self):
+    def get_application(self,no_exception=False):
         """Get application name"""
-        return self.data["application"]
+        try:
+            return str(self.data["application"])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
-    def get_version(self,as_str=False):
+    def get_version(self,as_str=False,no_exception=False):
         """Get model version"""
-        version = self.data["version"]
-        if as_str:
-            return version
-        else:
-            return version.split(".")
+        try:
+            version = self.data["version"]
+            if as_str:
+                return str(version)
+            else:
+                return version.split(".")
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
-    def run(self,options=[]):
+
+    def run(self,options=[],no_exception=False):
         """Run the simulation"""
-        tmpdir = GldTemporaryFile("/")
-        tmpfile = GldTemporaryFile(".json",tmpdir.name)
-        self.save(tmpfile.name)
-        arglist = [tmpfile.name]
-        arglist.extend(options)
-        return GldRunner(arglist).model
+        try:
+            tmpdir = GldTemporaryFile("/")
+            tmpfile = GldTemporaryFile(".json",tmpdir.name)
+            self.save(tmpfile.name)
+            arglist = [tmpfile.name]
+            arglist.extend(options)
+            return GldRunner(arglist).model
+        except:
+            if notno_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     def __eq__(self,model):
         """Check if models are equal"""
@@ -387,21 +511,33 @@ class GldModel:
                     del result[name]
         return result
 
-    def get_module(self,name):
+    def get_module(self,name,no_exception=False):
         """Get a loaded GridLAB-D module"""
-        return GldModule(name,self.data["modules"][name])
+        try:
+            return GldModule(name,self.data["modules"][name])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
-    def add_module(self,name):
+    def add_module(self,name,no_exception=False):
         """Add a GridLAB-D module"""
-        if not name in self.get_modules():
-            result = GldRunner(["--modhelp",name])
-            if not name in result.get_model().get_modules().keys():
-                error(f"module '{name}' not found")
-            self.data["modules"].update(result.model["modules"])
-            self.data["classes"].update(result.model["classes"])
-        return self.data
+        try:
+            if not name in self.get_modules():
+                result = GldRunner(["--modhelp",name])
+                if not name in result.get_model().get_modules().keys():
+                    error(f"module '{name}' not found")
+                self.data["modules"].update(result.model["modules"])
+                self.data["classes"].update(result.model["classes"])
+            return GldModule(name,self.data["modules"][name])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
-    def delete_module(self,name,found='fail'):
+    def delete_module(self,name,found='fail',no_exception=False):
         """Delete a GridLAB-D module
 
             name             module name to delete
@@ -410,17 +546,24 @@ class GldModel:
             found='fail'     raise exception if element found using module (default)
             found='ignore'   ignore elements found using module
         """
-        for key in list(self.get_classes().keys()):
-            data = self.get_classes()[key]
-            if data["module"] == name:
-                if found == 'delete':
-                    self.delete_class(key)
-                elif found == 'fail':
-                    raise GldException(f"module in use by class {key}")
-                elif found != 'ignore':
-                    raise GldException(f"found='{found}' is invalid")
-        del self.data["modules"][name]
-
+        try:
+            for key in list(self.get_classes().keys()):
+                data = self.get_classes()[key]
+                if data["module"] == name:
+                    if found == 'delete':
+                        self.delete_class(key)
+                    elif found == 'fail':
+                        raise GldException(f"module in use by class {key}")
+                    elif found != 'ignore':
+                        raise GldException(f"found='{found}' is invalid")
+            del self.data["modules"][name]
+            return True
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
+    
     #
     # Classes
     #
@@ -445,9 +588,10 @@ class GldModel:
         try:
             return GldClass(name,self.data["classes"][name])
         except:
-            if no_exception:
-                return False
-            raise
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     def add_class(self,name,data,no_exception=False):
         """Add a class"""
@@ -455,12 +599,13 @@ class GldModel:
             self.check_class(name,data)
             if name in self.data["classes"].keys():
                 raise GldException(f"class '{name}' is already defined")
-            self.data["classes"]
+            self.data["classes"][name] = data
+            return GldClass(name,self.data["classes"][name])
         except:
-            if no_exception:
-                return False
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     def check_class(self,name,data,no_exception=False):
         try:
@@ -471,23 +616,30 @@ class GldModel:
                     raise GldException(f"class '{name}' is missing a type specification")
                 if not value["type"] in self.data["types"].keys():
                     raise GldException(f"class '{name}' uses an invalid type '{value['type']}'")
-                for key in data.keys():
-                    if not key in ["type","access","keywords","flags","description"]:
-                        raise GldException(f"class '{name}' includes an invalid specification for '{key}'")
+                for spec in value.keys():
+                    if not spec in ["type","access","keywords","flags","description"]:
+                        raise GldException(f"class '{name}' includes an invalid specification for '{spec}'")
+            return True
         except:
-            if no_exception:
-                return False
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
-    def isa_class(self,name,kindof):
+    def isa_class(self,name,kindof,no_exception=False):
         """Check whether a class is a kindof another class"""
-        oclass = self.data["classes"][name]
-        if not "parent" in oclass.keys():
-            return name == kindof
-        return self.isa_class(oclass["parent"],kindof)
+        try:
+            oclass = self.data["classes"][name]
+            if not "parent" in oclass.keys():
+                return name == kindof
+            return self.isa_class(oclass["parent"],kindof)
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
-    def delete_class(self,name,found='fail'):
+    def delete_class(self,name,found='fail',no_exception=False):
         """Delete a class
 
             name             class name to delete
@@ -496,16 +648,23 @@ class GldModel:
             found='fail'     raise exception if element found using class (default)
             found='ignore'   ignore elements found using class
         """
-        for key in list(self.get_objects()):
-            data = self.get_objects()[key]
-            if data["class"] == name:
-                if found == 'delete':
-                    self.delete_object(key)
-                elif found == 'fail':
-                    raise GldException(f"class in use by object {key}")
-                elif found != 'ignore':
-                    raise GldException(f"found='{found}' is invalid")
-        del self.data["classes"][name]
+        try:
+            for key in list(self.get_objects()):
+                data = self.get_objects()[key]
+                if data["class"] == name:
+                    if found == 'delete':
+                        self.delete_object(key)
+                    elif found == 'fail':
+                        raise GldException(f"class in use by object {key}")
+                    elif found != 'ignore':
+                        raise GldException(f"found='{found}' is invalid")
+            del self.data["classes"][name]
+            return True
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
     #
     # Types
@@ -520,9 +679,15 @@ class GldModel:
                     del result[name]
         return result
 
-    def get_type(self,name):
+    def get_type(self,name,no_exception=False):
         """Get a GridLAB-D data type specification"""
-        return GldType(name,self.data["types"][name])
+        try:
+            return GldType(name,self.data["types"][name])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     #
     # Headers
@@ -537,9 +702,15 @@ class GldModel:
                     del result[name]
         return result
 
-    def get_header(self,name):
+    def get_header(self,name,no_exception=False):
         """Get a GridLAB-D object header data specification"""
-        return GldHeader(name,self.data["header"][name])
+        try:
+            return GldHeader(name,self.data["header"][name])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     #
     # Globals
@@ -554,56 +725,67 @@ class GldModel:
                     del result[name]
         return result
 
-    def get_global(self,name):
+    def get_global(self,name,no_exception=False):
         """Get a global variable"""
-        return GldGlobal(name,self.data["globals"][name])
+        try:
+            return GldGlobal(name,self.data["globals"][name])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
-    def set_global(self,name,data,no_exception=True):
+    def set_global(self,name,data,no_exception=False):
         """Set a global variable"""
         try:
             self.check_global(name,data)
             self.data["globals"][name] = data
+            return True
         except:
-            if no_exception:
-                return False
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
-    def add_global(self,name,data,type="char1024",access="PUBLIC",no_exception=True):
+    def add_global(self,name,data,type="char1024",access="PUBLIC",no_exception=False):
         """Add a global variable"""
         try:
             if name in self.data["globals"].keys():
                 raise GldException(f"global '{name}' is already defined")
             self.check_global(name,data)
+            self.data["globals"][name] = data
+            return self.data["globals"][name]
         except:
-            if no_exception:
-                return False
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     def check_global(self,name,data,no_exception=False):
+        """Validate a global"""
         try:
             for item in data.keys():
                 if not item in ["type","keywords","access","value"]:
                     raise GldException(f"global '{name}' data item '{item}' is invalid")
             if not data["type"] in self.data["types"].keys():
                 raise GldException(f"global '{name}' type '{data['type']}' is invalid")
-
+            return True
         except:
-            if no_exception:
-                return False
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
     def delete_global(self,name,no_exception=False):
         """Delete a global variables"""
         try:
             del self.data["globals"]
+            return True
         except:
-            if no_exception:
-                return False
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
     #
     # Schedules
@@ -618,28 +800,38 @@ class GldModel:
                     del result[name]
         return result
 
-    def get_schedule(self,name):
+    def get_schedule(self,name,no_exception=False):
         """Get a schedule"""
-        return GldSchedule(name,self.data["schedules"][name])
+        try:
+            return GldSchedule(name,self.data["schedules"][name])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     def add_schedule(self,name,data,no_exception=False):
         """Add a schedule"""
-        if not self.check_schedule(name,data,no_exception):
-            return False
-        self.data["schedules"][name] = data
-        return True
+        try:
+            self.check_schedule(name,data)
+            self.data["schedules"][name] = data
+            return self.data["schedule"][name]
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None        
 
     def check_schedule(self,name,data,no_exception=False):
         try:
             if not type(data) is str:
                 raise GldException("schedule '{name}' data is not a string")
-        except GldException:
-            if no_exception:
-                return False
-            raise
+            return True
         except:
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
     def delete_schedule(self,name,found='fail',no_exception=False):
         """Delete a schedule"""
@@ -657,13 +849,12 @@ class GldModel:
                         elif found != 'ignore':
                             raise Exception(f"option found='{found}' is invalid")
             del self.data["schedules"][name]
-        except GldException:
-            if no_exception:
-                return False
-            raise
+            return True
         except:
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
     #
     # Filters
@@ -681,8 +872,14 @@ class GldModel:
                     del result[name]
         return result
 
-    def get_filter(self,name):
-        return GldFilter(name,self.data["filters"][name])
+    def get_filter(self,name,no_exception=False):
+        try:
+            return GldFilter(name,self.data["filters"][name])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     def add_filter(self,name,data,no_exception=False):
         try:
@@ -690,13 +887,12 @@ class GldModel:
                 raise GldException(f"filter '{name}' is already defined")
             self.check_filter(name,data)
             self.data["filters"][name] = data
-        except GldException:
-            if no_exception:
-                return False
-            raise
+            return self.data["filters"][name]
         except:
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     def check_filter(self,name,data,no_exception=False):
         try:
@@ -706,13 +902,12 @@ class GldModel:
             for key in data.keys():
                 if key not in ["domain","timestep","timeskew","resolution","minimum","maximum","numerator","denominator"]:
                     raise GldException(f"filter '{name}' key '{key}' is not recognized")
-        except GldException:
-            if no_exception:
-                return False
-            raise
+            return True
         except:
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
     def delete_filter(self,name,found='fail',no_exception=False):
         try:
@@ -729,13 +924,12 @@ class GldModel:
                         elif found != 'ignore':
                             raise Exception(f"option found='{found}' is invalid")
             del self.data["filters"][name]
-        except GldException:
-            if no_exception:
-                return False
-            raise
+            return True
         except:
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
     #
     # Objects
@@ -757,8 +951,14 @@ class GldModel:
                     del result[name]
         return result
 
-    def get_object(self,name):
-        return GldObject(name,self.data["objects"][name])
+    def get_object(self,name,no_exception=False):
+        try:
+            return GldObject(name,self.data["objects"][name])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     def add_object(self,name,data,no_check=False,no_exception=False):
         try:
@@ -767,11 +967,12 @@ class GldModel:
             if not no_check:
                 self.check_object(name,data)
             self.data["objects"][name] = data
+            return GldObject(name,self.data["objects"][name])
         except:
-            if no_exception:
-                return False
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
     def delete_object(self,name,found='fail',no_exception=False):
         """Delete object
@@ -800,13 +1001,12 @@ class GldModel:
                     elif found != 'ignore':
                         raise Exception(f"option '{fail}' is invalid'")
                 del self.data["objects"][name]
-        except GldException:
-            if no_exception:
-                return False
-            raise
+            return True
         except:
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
 
     def check_object(self,name,data,no_exception=False):
         """Validate object specifications"""
@@ -819,13 +1019,108 @@ class GldModel:
             for prop,value in data.items():
                 pspec = oclass.get_property(prop)
                 pspec.check_value(value)
-        except GldException:
-            if no_exception:
-                return False
-            raise
+            return True
         except:
-            raise
-        return True
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return False
+
+    def get_double(self,obj,prop,no_exception=False):
+        """Return an object property value as a double"""
+        try:
+            data = self.data["objects"][obj]
+            if prop in data.keys():
+                value = data[prop]
+            else:
+                oclass = data["class"]
+                if not prop in self.data["classes"][oclass].keys():
+                    raise GldException(f"object '{obj}' property '{prop}' is invalid")
+                value = self.data["classes"][oclass][prop]["default"]
+            return float(value.split()[0])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
+
+    def get_complex(self,no_exception=False):
+        """Return an object property value as a double"""
+        try:
+            data = self.data["objects"][obj]
+            if prop in data.keys():
+                value = data[prop]
+            else:
+                oclass = data["class"]
+                if not prop in self.data["classes"][oclass].keys():
+                    raise GldException(f"object '{obj}' property '{prop}' is invalid")
+                value = self.data["classes"][oclass][prop]["default"]
+            return complex(value.split()[0])
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
+
+    def get_unit(self,no_exception=False):
+        """Return an object property unit, if any"""
+        try:
+            oclass = self.data["objects"][obj]["class"]
+            if not prop in self.data["classes"][oclass].keys():
+                raise GldException(f"object '{obj}' property '{prop}' is invalid")
+            return self.data["classes"][oclass][prop]["unit"]
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
+
+    def get_integer(self,no_exception=False):
+        """Return an object property as an integer"""
+        try:
+            data = self.data["objects"][obj]
+            if prop in data.keys():
+                value = data[prop]
+            else:
+                oclass = data["class"]
+                if not prop in self.data["classes"][oclass].keys():
+                    raise GldException(f"object '{obj}' property '{prop}' is invalid")
+                value = self.data["classes"][oclass][prop]["default"]
+            return int(value)
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
+
+    def get_string(self,no_exception=False):
+        """Return an object property as a string"""
+        try:
+            data = self.data["objects"][obj]
+            if prop in data.keys():
+                value = data[prop]
+            else:
+                oclass = data["class"]
+                if not prop in self.data["classes"][oclass].keys():
+                    raise GldException(f"object '{obj}' property '{prop}' is invalid")
+                value = self.data["classes"][oclass][prop]["default"]
+            return str(value)
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
+
+    def get_object(self,no_exception=False):
+        """Return an object property as object data"""
+        try:
+            value = self.data["objects"][obj][prop]
+            return self.data["objects"][value]
+        except:
+            if not no_exception:
+                raise
+            self._lasterror = sys.exc_info()
+        return None
 
 #
 # Only run when loaded as a script
@@ -835,18 +1130,22 @@ if __name__ == "__main__":
 
     import unittest
 
-    class TestGridlabdJsonModule(unittest.TestCase):
+    #
+    # Runner
+    #
 
-        #
-        # Runner
-        #
+    class TestRunner(unittest.TestCase):
+
         def test_gldrunner(self):
             result = GldRunner("--version=number")
             self.assertEqual(result.exitcode,0)
 
-        #
-        # Models
-        #
+    #
+    # Models
+    #
+
+    class TestModel(unittest.TestCase):
+
         def test_gldmodel_version(self):
             result = GldRunner("--version=number")
             model = GldModel()
@@ -865,9 +1164,12 @@ if __name__ == "__main__":
             self.assertTrue("id" in model.get_headers())
             self.assertTrue("version" in model.get_globals())
 
-        #
-        # Modules
-        #
+    #
+    # Modules
+    #
+
+    class TestModule(unittest.TestCase):
+    
         def test_gldmodel_nomodule(self):
             model = GldModel()
             try:
@@ -933,9 +1235,12 @@ if __name__ == "__main__":
             self.assertTrue("residential" in modules.keys())
             self.assertFalse("powerflow" in modules.keys())
 
-        #
-        # Classes
-        #
+    #
+    # Classes
+    #
+
+    class TestClass(unittest.TestCase):
+    
         def test_gldmodel_getclass(self):
             model = GldModel()
             model.add_module("powerflow")
@@ -964,9 +1269,12 @@ if __name__ == "__main__":
             properties = oclass.find_properties("voltage.*")
             self.assertGreater(len(properties),0)
 
-        #
-        # Run
-        #
+    #
+    # Model run
+    #
+
+    class TestRun(unittest.TestCase):
+    
         def test_gldmodel_run(self):
             model = GldModel()
             result = model.run()
@@ -976,13 +1284,13 @@ if __name__ == "__main__":
     # Unittest and profiler
     #
 
-    if OPTIONS['save_unittest_output']:
+    if CONFIG['save_unittest']:
         sys.stdout = open(UNITTESTFILE,"w")
-        if OPTIONS['save_profile_output']:
+        if CONFIG['save_profile']:
             sys.stderr = sys.stdout
-    elif OPTIONS['save_profile_output']:
+    elif CONFIG['save_profile']:
         sys.stdout = open(UNITTESTFILE,"w")
-    if OPTIONS['profile_unittest']:
+    if CONFIG['profile_unittest']:
         import cProfile
         runner = cProfile.run
     else:
