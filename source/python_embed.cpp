@@ -9,16 +9,26 @@ PyObject *gridlabd_module = NULL;
 void python_embed_init(int argc, const char *argv[])
 {
     program = Py_DecodeLocale(argv[0],NULL);
+    if ( program == NULL )
+    {
+        throw_exception("python_embed_init(argc=%d,argv=(%s,...)): unable to decode program name in locale",argc,argv?argv[0]:"NULL");
+    }
+
     Py_SetProgramName(program);
     Py_Initialize();
+
     main_module = PyModule_GetDict(PyImport_AddModule("__main__"));
     if ( main_module == NULL )
     {
         throw_exception("python_embed_init(argc=%d,argv=(%s,...)): unable to load module __main__ module",argc,argv?argv[0]:"NULL");
     }
-    gridlabd_module = PyInit_gridlabd();
-    Py_INCREF(gridlabd_module);
     Py_INCREF(main_module);
+    
+    gridlabd_module = PyInit_gridlabd();
+    if ( gridlabd_module == NULL )
+    {
+        throw_exception("python_embed_init(argc=%d,argv=(%s,...)): unable to initialize the gridlabd python module",argc,argv?argv[0]:"NULL");
+    }
 }
 
 void *python_loader_init(int argc, const char **argv)
@@ -66,7 +76,7 @@ PyObject *python_embed_import(const char *module, const char *path)
             PyObject *pType, *pValue, *pTraceback;
             PyErr_Fetch(&pType, &pValue, &pTraceback);
             PyObject *repr = pValue ? PyObject_Repr(pValue) : NULL;
-            PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "~E~") : NULL;
+            PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "backslashreplace") : NULL;
             const char *msg = bytes?PyBytes_AS_STRING(bytes):"PyRun_SimpleString failed with no information";
             output_error("python_embed_import(module='%s',path='%s'): %s; string='%s'",module,path,msg,tmp);
             if ( repr ) Py_DECREF(repr);
@@ -92,7 +102,7 @@ PyObject *python_embed_import(const char *module, const char *path)
         PyObject *pType, *pValue, *pTraceback;
         PyErr_Fetch(&pType, &pValue, &pTraceback);
         PyObject *repr = pValue ? PyObject_Repr(pValue) : NULL;
-        PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "~E~") : NULL;
+        PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "backslashreplace") : NULL;
         const char *msg = bytes?PyBytes_AS_STRING(bytes):"PyImport_ImportModule failed with no information";
         output_error("python_embed_import(module='%s',path='%s'): %s",module,path,msg);
         if ( repr ) Py_DECREF(repr);
@@ -145,7 +155,7 @@ bool python_embed_call(PyObject *pModule, const char *name, const char *vargsfmt
         PyObject *pType, *pValue, *pTraceback;
         PyErr_Fetch(&pType, &pValue, &pTraceback);
         PyObject *repr = pValue ? PyObject_Repr(pValue) : NULL;
-        PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "~E~") : NULL;
+        PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "backslashreplace") : NULL;
         const char *msg = bytes?PyBytes_AS_STRING(bytes):"function not defined";
         output_error("python_embed_call(pModule,name='%s'): %s ",truncate(name), msg);
         if ( repr ) Py_DECREF(repr);
@@ -157,7 +167,7 @@ bool python_embed_call(PyObject *pModule, const char *name, const char *vargsfmt
         PyObject *pType, *pValue, *pTraceback;
         PyErr_Fetch(&pType, &pValue, &pTraceback);
         PyObject *repr = pValue ? PyObject_Repr(pValue) : NULL;
-        PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "~E~") : NULL;
+        PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "backslashreplace") : NULL;
         const char *msg = bytes?PyBytes_AS_STRING(bytes):"function not callable";
         output_error("python_embed_call(pModule,name='%s'): %s ",truncate(name), msg);
         if ( repr ) Py_DECREF(repr);
@@ -183,7 +193,7 @@ bool python_embed_call(PyObject *pModule, const char *name, const char *vargsfmt
         if ( pValue )
         {
             PyObject *repr = PyObject_Repr(pValue);
-            PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "~E~") : NULL;
+            PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "backslashreplace") : NULL;
             const char *msg = bytes ? PyBytes_AS_STRING(bytes) : "function call failed";
             output_error("python_embed_call(pModule,name='%s'): %s",truncate(name), msg);
             if ( repr ) Py_DECREF(repr);
@@ -192,7 +202,7 @@ bool python_embed_call(PyObject *pModule, const char *name, const char *vargsfmt
             if ( pContext )
             {
                 PyObject *repr = pContext ? PyObject_Repr(pContext) : NULL;
-                PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "~E~") : NULL;
+                PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "backslashreplace") : NULL;
                 const char *msg = bytes?PyBytes_AS_STRING(bytes):"function call failed";
                 output_error("python_embed_call(pModule,name='%s'): context is %s",truncate(name), msg);
                 Py_DECREF(pContext);
@@ -219,7 +229,7 @@ bool python_embed_call(PyObject *pModule, const char *name, const char *vargsfmt
             PyObject *pCall = PyObject_GetAttrString(pError,"getvalue");
             PyErr_Clear();
             PyObject *pValue = pCall && PyCallable_Check(pCall) ? PyObject_CallObject(pCall,NULL) : NULL;
-            PyObject *pBytes = pValue && PyUnicode_Check(pValue) ? PyUnicode_AsEncodedString(pValue, "utf-8", "~E~") : NULL;
+            PyObject *pBytes = pValue && PyUnicode_Check(pValue) ? PyUnicode_AsEncodedString(pValue, "utf-8", "backslashreplace") : NULL;
             const char *msg = pBytes ? PyBytes_AS_STRING(pBytes): NULL;
             if ( strcmp(msg,"") != 0 )
             {
@@ -238,7 +248,7 @@ bool python_embed_call(PyObject *pModule, const char *name, const char *vargsfmt
             PyObject *pCall = PyObject_GetAttrString(pOutput,"getvalue");
             PyErr_Clear();
             PyObject *pValue = pCall && PyCallable_Check(pCall) ? PyObject_CallObject(pCall,NULL) : NULL;
-            PyObject *pBytes = pValue && PyUnicode_Check(pValue) ? PyUnicode_AsEncodedString(pValue, "utf-8", "~E~") : NULL;
+            PyObject *pBytes = pValue && PyUnicode_Check(pValue) ? PyUnicode_AsEncodedString(pValue, "utf-8", "backslashreplace") : NULL;
             const char *msg = pBytes ? PyBytes_AS_STRING(pBytes): NULL;
             if ( strcmp(msg,"") != 0 )
             {
@@ -296,7 +306,7 @@ bool python_embed_call(
         PyObject *pType, *pValue, *pTraceback;
         PyErr_Fetch(&pType, &pValue, &pTraceback);
         PyObject *repr = pValue ? PyObject_Repr(pValue) : NULL;
-        PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "~E~") : NULL;
+        PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "backslashreplace") : NULL;
         const char *msg = bytes?PyBytes_AS_STRING(bytes):"function not defined";
         output_error("python_embed_call(pModule,name='%s'): %s ",truncate(name), msg);
         if ( repr ) Py_XDECREF(repr);
@@ -308,7 +318,7 @@ bool python_embed_call(
         PyObject *pType, *pValue, *pTraceback;
         PyErr_Fetch(&pType, &pValue, &pTraceback);
         PyObject *repr = pValue ? PyObject_Repr(pValue) : NULL;
-        PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "~E~") : NULL;
+        PyObject *bytes = repr ? PyUnicode_AsEncodedString(repr, "utf-8", "backslashreplace") : NULL;
         const char *msg = bytes?PyBytes_AS_STRING(bytes):"function not callable";
         output_error("python_embed_call(pModule,name='%s'): %s ",truncate(name), msg);
         if ( repr ) Py_XDECREF(repr);
@@ -336,7 +346,7 @@ bool python_embed_call(
         PyObject *pCall = PyObject_GetAttrString(pError,"getvalue");
         PyErr_Clear();
         PyObject *pValue = pCall && PyCallable_Check(pCall) ? PyObject_CallObject(pCall,NULL) : NULL;
-        PyObject *pBytes = pValue && PyUnicode_Check(pValue) ? PyUnicode_AsEncodedString(pValue, "utf-8", "~E~") : NULL;
+        PyObject *pBytes = pValue && PyUnicode_Check(pValue) ? PyUnicode_AsEncodedString(pValue, "utf-8", "backslashreplace") : NULL;
         const char *msg = pBytes ? PyBytes_AS_STRING(pBytes): NULL;
         if ( strcmp(msg,"") != 0 )
         {
@@ -354,7 +364,7 @@ bool python_embed_call(
         PyObject *pCall = PyObject_GetAttrString(pOutput,"getvalue");
         PyErr_Clear();
         PyObject *pValue = pCall && PyCallable_Check(pCall) ? PyObject_CallObject(pCall,NULL) : NULL;
-        PyObject *pBytes = pValue && PyUnicode_Check(pValue) ? PyUnicode_AsEncodedString(pValue, "utf-8", "~E~") : NULL;
+        PyObject *pBytes = pValue && PyUnicode_Check(pValue) ? PyUnicode_AsEncodedString(pValue, "utf-8", "backslashreplace") : NULL;
         const char *msg = pBytes ? PyBytes_AS_STRING(pBytes): NULL;
         if ( strcmp(msg,"") != 0 )
         {
@@ -388,8 +398,21 @@ std::string python_eval(const char *command)
         throw "python exception";
     }
     PyObject *repr = PyObject_Repr(result);
-    PyObject *str = PyUnicode_AsEncodedString(repr,"utf-8","~E~");
-    std::string bytes(PyBytes_AS_STRING(str));
+    if ( repr == NULL )
+    {
+        throw_exception("python_eval(command='%s'): unable to read result",command);
+    }
+    PyObject *str = PyUnicode_AsEncodedString(repr,"utf-8","backslashreplace");
+    if ( str == NULL )
+    {
+        throw_exception("python_eval(command='%s'): unable to decode result",command);
+    }
+    char *data = PyBytes_AsString(str);
+    if ( data == NULL )
+    {
+        throw_exception("python_eval(command='%s'): unable to get result string",command);
+    }
+    std::string bytes(data);
     Py_DECREF(repr);
     Py_DECREF(str);
     Py_DECREF(result);
@@ -439,6 +462,11 @@ bool python_parser(const char *line, void *context)
 DEPRECATED int convert_from_python(char *buffer, int size, void *data, PROPERTY *prop)
 {
     PyObject *obj = PyObject_Str(*(PyObject**)data);
+    if ( obj == NULL )
+    {
+        buffer[0] = '\0';
+        return 0;
+    }
     int len = PyUnicode_GetLength(obj);
     if ( buffer == NULL )
     {
@@ -449,6 +477,7 @@ DEPRECATED int convert_from_python(char *buffer, int size, void *data, PROPERTY 
         len = size;
     }
     strcpy(buffer,PyUnicode_AsUTF8(obj));
+    Py_DECREF(obj);
     return len;
 }
 
@@ -456,10 +485,20 @@ DEPRECATED int convert_from_python(char *buffer, int size, void *data, PROPERTY 
 DEPRECATED int convert_to_python(const char *buffer, void *data, PROPERTY *prop)
 {
     PyObject **pObj = (PyObject **)data;
-    Py_DECREF(*pObj);
+    if ( *pObj )
+    {
+        Py_DECREF(*pObj);
+    }
     *pObj = PyRun_String(buffer,Py_eval_input,main_module,main_module);
-    if ( *pObj ) Py_INCREF(*pObj);
-    return *pObj ? strlen(buffer) : -1;
+    if ( *pObj ) 
+    {
+        Py_INCREF(*pObj);
+        return strlen(buffer);
+    }
+    else
+    {
+        return -1;
+    }
 }
 
 DEPRECATED int initial_from_python(char *buffer, int size, void *data, PROPERTY *prop)
