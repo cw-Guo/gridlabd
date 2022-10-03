@@ -285,6 +285,8 @@ distclean-local: python-clean
 libtool: $(LIBTOOL_DEPS)
 	$(SHELL) $(PWD)/config.status libtool > /dev/null
 
+VERSION_NAME = $(build-aux/version.sh --name)
+
 install-exec-hook: index python-requirements docs
 	@cp ${top_srcdir}/{COPYRIGHT,LICENSE} $(prefix)
 	@echo ""
@@ -297,7 +299,7 @@ install-exec-hook: index python-requirements docs
 	@echo "  $(DESTDIR)$(bindir)/gridlabd"
 	@echo ""
 	@echo "To make this version the default for all users on this system:"
-	@echo "  $(DESTDIR)$(bindir)/gridlabd version set"
+	@echo "  $(DESTDIR)$(bindir)/gridlabd version set $(VERSION_NAME)"
 	@echo ""
 
 python-requirements: $(python_requirements)
