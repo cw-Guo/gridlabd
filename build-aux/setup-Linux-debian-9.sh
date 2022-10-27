@@ -82,53 +82,6 @@ sudo apt-get install curl -y
 		rm -rf autoconf-2.71.tar.gz
 	fi
 
-# Install python $PYTHON_VER
-# python3 support needed as of 4.2
-if [ ! -x $VERSION_DIR/bin/python3 -o "$($VERSION_DIR/bin/python3 --version | cut -f3 -d.)" != "Python $PY_EXE" ]; then
-	echo "installing python $PYTHON_VER and ssl module dependencies"
-	cd $VERSION_DIR/src
-
-	curl https://www.python.org/ftp/python/$PYTHON_VER/Python-$PYTHON_VER.tgz | tar xz
-
-	# tar xzf Python-$PYTHON_VER.tgz
-	cd $VERSION_DIR/src/Python-$PYTHON_VER
-
-	./configure --prefix=$VERSION_DIR --enable-shared --enable-optimizations --with-system-ffi --with-computed-gotos --enable-loadable-sqlite-extensions CFLAGS="-fPIC"
-
-	make -j $(nproc)
-	make install
-	/sbin/ldconfig $VERSION_DIR/lib
-	ln -sf $VERSION_DIR/bin/python3.9 $VERSION_DIR/bin/python3
-	ln -sf $VERSION_DIR/bin/python3.9-config $VERSION_DIR/bin/python3-config
-	ln -sf $VERSION_DIR/bin/pydoc3.9 $VERSION_DIR/bin/pydoc
-	ln -sf $VERSION_DIR/bin/idle3.9 $VERSION_DIR/bin/idle
-	ln -sf $VERSION_DIR/bin/pip3.9 $VERSION_DIR/bin/pip3
-
-
-	if [ ! -e /etc/ld.so.conf.d/gridlabd-$VERSION.conf ]; then
-		cd $HOME/temp
-		sudo touch $HOME/temp/gridlabd-$VERSION.conf
-		echo "$VERSION_DIR/lib" >> $HOME/temp/gridlabd-$VERSION.conf
-		sudo mv $HOME/temp/gridlabd-$VERSION.conf /etc/ld.so.conf.d/gridlabd-$VERSION.conf
-		sudo ldconfig
-	fi
-
-	$VERSION_DIR/bin/python3 -m pip install --upgrade pip
-	$VERSION_DIR/bin/python3 -m pip install matplotlib Pillow pandas numpy networkx pytz pysolar PyGithub scikit-learn xlrd boto3
-	$VERSION_DIR/bin/python3 -m pip install IPython censusdata
-
-	cd $REQ_DIR
-	$VERSION_DIR/bin/python3 -m pip install -r requirements.txt
-
-fi
-
-# check for successful python build
-if [ ! -x $VERSION_DIR/bin/python${PY_EXE} ]; then
-    echo "Could not locate python executable in"
-    echo "PYTHON LOCATION: $VERSION_DIR/bin/python${PY_EXE}"
-    echo "Exiting build."
-    exit 1
-fi
 
 # install latex
 apt-get install texlive -y

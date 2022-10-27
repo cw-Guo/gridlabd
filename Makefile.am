@@ -300,6 +300,7 @@ install-exec-hook: index python-requirements docs
 	@echo "  $(DESTDIR)$(bindir)/gridlabd version set"
 	@echo ""
 
+ # INSERTPYENVHERE
 python-requirements: $(python_requirements)
 	@echo "Updating python requirements..."
 	@$(bindir)/python3 -m pip install -q -r $(subst $(subst ,, ), -r ,$(python_requirements))
