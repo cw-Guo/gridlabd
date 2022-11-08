@@ -195,3 +195,6 @@ module/powerflow/autotest/switch_3.csv
 module/powerflow/autotest/switch_4.csv
 tools/autotest/test_meteostat_opt.csv
 tools/autotest/test_meteostat_opt.glm
+
+venv/
+third_party/pypower
